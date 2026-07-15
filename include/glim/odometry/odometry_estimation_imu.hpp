@@ -5,13 +5,13 @@
 #include <random>
 
 #include <glim/odometry/odometry_estimation_base.hpp>
+#include <gtsam/navigation/ImuFactor.h>
 #include <gtsam_points/util/gtsam_migration.hpp>
 #include <gtsam_points/util/indexed_sliding_window.hpp>
 
 namespace gtsam {
 class Pose3;
 class Values;
-class ImuFactor;
 class NonlinearFactorGraph;
 }  // namespace gtsam
 
@@ -57,6 +57,9 @@ public:
   bool use_isam2_dogleg;
   double isam2_relinearize_skip;
   double isam2_relinearize_thresh;
+
+  // Marginal computation params
+  bool compute_covs;  // Whether to compute marginal covariances of the latest frame (X(i), V(i), B(i))
 
   // Logging params
   bool validate_imu;

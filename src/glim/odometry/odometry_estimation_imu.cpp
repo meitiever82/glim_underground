@@ -62,6 +62,8 @@ OdometryEstimationIMUParams::OdometryEstimationIMUParams() {
   isam2_relinearize_skip = config.param<int>("odometry_estimation", "isam2_relinearize_skip", 1);
   isam2_relinearize_thresh = config.param<double>("odometry_estimation", "isam2_relinearize_thresh", 0.1);
 
+  compute_covs = config.param<bool>("odometry_estimation", "compute_covs", false);
+
   validate_imu = config.param<bool>("odometry_estimation", "validate_imu", true);
   save_imu_rate_trajectory = config.param<bool>("odometry_estimation", "save_imu_rate_trajectory", false);
 
@@ -106,6 +108,11 @@ OdometryEstimationIMU::OdometryEstimationIMU(std::unique_ptr<OdometryEstimationI
 #ifdef GTSAM_USE_TBB
   tbb_task_arena = std::make_shared<tbb::task_arena>(params->num_smoother_update_threads);
 #endif
+
+  Callbacks::request_to_compute_covariances.add([this]() {
+    logger->debug("request to compute marginal covs");
+    params->compute_covs = true;
+  });
 }
 
 OdometryEstimationIMU::~OdometryEstimationIMU() {}
@@ -237,15 +244,16 @@ EstimationFrame::ConstPtr OdometryEstimationIMU::insert_frame(const Preprocessed
   logger->trace("num_imu_integrated={}", num_imu_integrated);
 
   // IMU state prediction
-  const gtsam::NavState predicted_nav_world_imu = imu_integration->integrated_measurements().predict(last_nav_world_imu, last_imu_bias);
+  gtsam::NavState predicted_nav_world_imu = imu_integration->integrated_measurements().predict(last_nav_world_imu, last_imu_bias);
   gtsam::Pose3 predicted_T_world_imu = predicted_nav_world_imu.pose();
   gtsam::Vector3 predicted_v_world_imu = predicted_nav_world_imu.velocity();
 
   // Overwrite the predicted state with the last states if no IMU data is available
   if (num_imu_integrated < 2 && last > 1) {
-    const Eigen::Isometry3d T_delta = frames[last - 1]->T_lidar_imu.inverse() * frames[last]->T_lidar_imu;
+    const Eigen::Isometry3d T_delta = frames[last - 1]->T_world_imu.inverse() * frames[last]->T_world_imu;
     predicted_T_world_imu = gtsam::Pose3((frames[last]->T_world_imu * T_delta).matrix());
     predicted_v_world_imu = frames[last]->v_world_imu;
+    predicted_nav_world_imu = gtsam::NavState(predicted_T_world_imu, predicted_v_world_imu);
   }
 
   new_stamps[X(current)] = raw_frame->stamp;
@@ -409,6 +417,14 @@ void OdometryEstimationIMU::update_frames(int current, const gtsam::NonlinearFac
       fallback_smoother();
       break;
     }
+  }
+
+  if (params->compute_covs) {
+    auto latest_frame = frames[current];
+    latest_frame->cov_computed = true;
+    latest_frame->pose_cov = smoother->marginalCovariance(X(current));
+    latest_frame->vel_cov = smoother->marginalCovariance(V(current));
+    latest_frame->bias_cov = smoother->marginalCovariance(B(current));
   }
 }
 
