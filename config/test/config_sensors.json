@@ -42,25 +42,31 @@
   */
   "sensors": {
     // IMU config
-    "imu_acc_noise": 0.05,
-    "imu_gyro_noise": 0.02,
-    "imu_int_noise": 0.001,
-    "imu_bias_noise": 0.001,
+    //"imu_acc_noise": 0.05,
+    //"imu_gyro_noise": 0.02,
+    //"imu_int_noise": 0.001,
+    //"imu_bias_noise": 0.001,
+    "imu_acc_noise": 0.005,      // 实际的3-5倍余量
+    "imu_gyro_noise": 0.0005,    // 实际的5-10倍余量
+    "imu_int_noise": 0.0001,
+    "imu_bias_noise": 0.0001,
     // LiDAR config
     "global_shutter_lidar": false,
     "T_lidar_imu": [
-      0.006,
-      -0.012,
-      0.008,
-      0.0,
-      0.0,
-      0.0,
-      1.0
+      0.0004,
+      0.0004,
+     -0.0004,
+      0.709757,
+     -0.704427,
+      0.004992,
+     -0.001454
     ],
     // LiDAR per-point time settings
-    "autoconf_perpoint_times": true,
-    "autoconf_prefer_frame_time": false,
-    "perpoint_relative_time": true,
+    // Airy uses absolute per-point timestamps, not relative to frame header
+    // prefer_frame_time=true: keep ROS header stamp to stay in sync with IMU clock
+    "autoconf_perpoint_times": false,
+    "autoconf_prefer_frame_time": true,
+    "perpoint_relative_time": false,
     "perpoint_time_scale": 1.0,
     // Camera config (required for only extension modules)
     "global_shutter_camera": true,
