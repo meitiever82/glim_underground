@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.22)
 project(glim VERSION 1.2.2 LANGUAGES CXX)
 
 add_compile_options(-std=c++17)
@@ -7,6 +7,11 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_LIST_DIR}/cmake")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Choose the type of build." FORCE)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
+endif()
+
+if(POLICY CMP0167)
+  # Prefer BoostConfig.cmake over the removed FindBoost module (CMake >= 3.30).
+  cmake_policy(SET CMP0167 NEW)
 endif()
 
 option(BUILD_WITH_CUDA "Build with GPU support" ON)
@@ -79,6 +84,10 @@ add_library(glim SHARED
   src/glim/odometry/estimation_frame.cpp
   src/glim/odometry/initial_state_estimation.cpp
   src/glim/odometry/loose_initial_state_estimation.cpp
+  src/glim/odometry/robust_initial_state_estimation.cpp
+  src/glim/odometry/robust_initial_state_estimation_odom.cpp
+  src/glim/odometry/robust_initial_state_estimation_estimate.cpp
+  src/glim/odometry/robust_initial_state_estimation_refine.cpp
   src/glim/odometry/odometry_estimation_base.cpp
   src/glim/odometry/async_odometry_estimation.cpp
   src/glim/odometry/odometry_estimation_imu.cpp
