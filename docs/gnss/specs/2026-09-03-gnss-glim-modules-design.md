@@ -39,7 +39,7 @@ rtk-monitor 作为独立 Python 应用已交付并验证（四路接入、rtkrcv
 
 ### 1.4 非目标（本轮）
 
-- 双天线航向约束（`rtk_odometry` 等后续模块）
+- 双天线航向约束（后续在 `rtk_odometry` 上扩展姿态先验；本轮只做位置约束）
 - 界面迁移（已确定机制，见 §11，但不在本轮实施）
 - 改造 `gnss_global`（保持原样，作为 A/B 对比基线）
 
@@ -61,22 +61,33 @@ rtk-monitor 作为独立 Python 应用已交付并验证（四路接入、rtkrcv
 │     类型      RtkFixSample / EpochRecord / Verdict             │
 │     诊断      九条规则链 + 事件状态机 + 轨迹对比统计                 │
 │     约束      RtkNoisePolicy / RtkFixBuffer / FrameAligner     │
-│              AntennaPriorFactor                               │
+│              AntennaPriorFactor（统一 body_point 形式）          │
 │     解析      RTCM 分帧与 1005 解析 / rtkrcv $SAT 与 llh 解析    │
 │     落盘      .pos 写出器                                       │
-└───┬──────────────────┬────────────────────┬───────────────────┘
-    │                  │                    │
-    ↓                  ↓                    ↓
-glim_ext module    glim_ext module     独立 ROS2 节点
-rtk_global         gnss_diag           gnss_diag_node
-（mapping 约束）   （诊断 + UI）       （无 GLIM 时诊断/对比）
+└──┬────────────┬───────────────┬────────────────┬──────────────┘
+   │            │               │                │
+   ↓            ↓               ↓                ↓
+odometry     mapping         glim_ext         独立 ROS2 节点
+module       module          module           gnss_diag_node
+rtk_odometry rtk_global      gnss_diag        （无 GLIM 时诊断/对比）
+挂 X(frame)  挂 X(submap)    （诊断 + UI）
 ```
+
+**RTK 约束挂两处（odometry + global 都要，缺一不可）：**
+- `rtk_odometry`（`modules/odometry/`）挂 `OdometryEstimationCallbacks::on_smoother_update`，
+  往 fixed-lag 图里的**每帧节点 `X(frame.id) = T_world_imu`** 加因子——RTK 观测本就对应某一时刻的
+  帧状态，这是最细粒度、最正确的落点。
+- `rtk_global`（`modules/mapping/`）挂 `GlobalMappingCallbacks::{on_insert_submap, on_smoother_update}`，
+  往**submap 节点 `X(s)`** 加因子——负责大范围/长程的全局一致性（回环尺度），
+  防止 global 优化把配准地图整体拽离 ENU。
+- 二者共用 `gnss_core`；odometry 保证局部轨迹全局参考，global 保证整图 georeference 不漂。
 
 ### 2.1 分层原则
 
-- **算法只写一遍**，在 `gnss_core`；三个壳都薄，只做订阅、类型转换、回调注册
-- **生产者与消费者靠 `RtkFix` 消息解耦**：`rtk_global` 可订阅任意一个 fix 源（610 的或 rtkrcv 的），支持整体替换与并行对比，这正是"不同 GNSS 算法 = 不同模块"的落地方式
+- **算法只写一遍**，在 `gnss_core`；所有壳（两个约束模块 + 诊断模块 + 独立节点）都薄，只做订阅、类型转换、回调注册
+- **生产者与消费者靠 `RtkFix` 消息解耦**：约束模块可订阅任意一个 fix 源（610 的或 rtkrcv 的），支持整体替换与并行对比，这正是"不同 GNSS 算法 = 不同模块"的落地方式
 - **`gnss_core` 单独成包**，不放进 `glim_ext`——否则独立节点会被迫依赖 glim_ext
+- **约束分两个模块**：`rtk_odometry`（帧级）与 `rtk_global`（submap 级）职责不同、可各自 config 启停，但共用 `gnss_core` 的 `FrameAligner` / `AntennaPriorFactor` / `RtkNoisePolicy` / `RtkFixBuffer`（这些是纯 Eigen/GTSAM，无 GLIM 依赖，故放共享 core 而非某个模块内）
 
 ### 2.2 为什么诊断也是 glim_ext module
 
@@ -273,8 +284,8 @@ gnss_core/
 │   ├── types.hpp              RtkFixSample / EpochRecord / Verdict / Quality
 │   ├── rtk_noise_policy.hpp   质量 → GTSAM noise model（§7.2）
 │   ├── rtk_fix_buffer.hpp     缓存 + 时间插值
-│   ├── frame_aligner.hpp      T_world_enu 估计（SVD）
-│   ├── antenna_prior_factor.hpp  带杆臂的 GTSAM 因子
+│   ├── frame_aligner.hpp      T_world_enu 估计（SVD，可重估精化，不冻结）
+│   ├── antenna_prior_factor.hpp  GTSAM 因子（统一 body_point 形式，odometry/global 共用）
 │   ├── rules.hpp              九条诊断规则链
 │   ├── event_machine.hpp      事件迟滞状态机
 │   ├── trajectory_compare.hpp 轨迹对比统计（§9）
@@ -301,42 +312,62 @@ gnss_core/
 | 尺度畸变 | 有投影尺度因子 | 局部严格无畸变 |
 | 适用 | 大范围制图 | **几公里的矿区** |
 
-故 `gnss_global` 中的 `T_world_utm` 在本设计中对应 **`T_world_enu`**。ENU 原点由配置指定，默认取首个通过门限的 fix。
+故 `gnss_global` 中的 `T_world_utm` 在本设计中对应 **`T_world_enu`**。ENU 原点由配置指定，默认取首个通过门限的 fix，**一经设定即固定，永不作为优化变量**（见 §7 甲方案）。
 
 **不需要 `Geoid`**：GNSS 出椭球高，矿区范围内 geoid 差为常数，会被 `T_world_enu` 的平移吸收。
 
+**FrameAligner 为何在 core**：它只是点集配准（Umeyama），纯 Eigen、无 GLIM 类型依赖；且 `rtk_odometry` 与 `rtk_global` 两个模块都要用（各自 world 系不同，各持一个 FrameAligner 实例），放共享 core 而非某模块内以避免重复。它提供"重估"接口（`add` 累积点对、随优化推进重算 T），不是一次冻结。
+
 ---
 
-## 7. `rtk_global` 模块
+## 7. 约束模块（rtk_odometry + rtk_global）
 
-### 7.1 主流程
+RTK 约束挂两处（缺一不可，§2 已述）。两模块共用 `gnss_core`（RtkFixBuffer / RtkNoisePolicy / FrameAligner / AntennaPriorFactor），差异只在：挂哪套 callback、约束哪个 node、`body_point` 怎么算。各自可 config 启停。
+
+### 7.0 挂载点对照
+
+| | `rtk_odometry`（modules/odometry/） | `rtk_global`（modules/mapping/） |
+|---|---|---|
+| callback | `OdometryEstimationCallbacks::{on_new_frame, on_smoother_update}` | `GlobalMappingCallbacks::{on_insert_submap, on_smoother_update}` |
+| 约束 node | `X(frame.id)` = `T_world_imu`（该帧时刻的 IMU 位姿，本就是图变量） | `X(submap.id)` = submap 原点位姿 |
+| body_point | `lever_imu`（天线在 IMU 系） | `T_origin_frame(t) · lever_imu`（把杆臂搬到 submap 原点系，约束 t 时刻真实位置而非原点） |
+| 作用 | 局部轨迹全局参考（滑窗内每帧被 RTK 钉住） | 大范围/长程一致性，防 global 优化把整图拽离 ENU |
+| gauge | 自己的 `T_world_enu`（odometry world） | 自己的 `T_world_enu`（global map world；与 odometry world 可能不同，故各持一个） |
+
+### 7.1 主流程（两模块同构，只差挂载点）
 
 ```
 RtkFix topic ──→ [1] 入 RtkFixBuffer（按时间排序）
                        │
-GLIM on_insert_submap ─→ [2] submap 入队
+GLIM 回调（新帧 / 新 submap）─→ [2] 目标 node 入队（带 id 与时间戳 t）
                        │
              后台线程循环：
                        ↓
-       [3] 关联：取 submap 中间帧时间戳 t，在缓冲中取左右两个 fix 线性插值
+       [3] 关联：对目标 node 的时间戳 t，在缓冲中取左右两个 fix 线性插值
            └─ 质量取两端较差者（不得插出假 FIXED）
                        ↓
        [4] 经纬高 → ENU（GeographicLib::LocalCartesian，原点固定）
                        ↓
-       [5] 帧对齐：累积 (submap 平移, ENU 坐标) 对
-           └─ 基线 > min_baseline 时，SVD/Umeyama 解出 T_world_enu（2D 旋转 + 平移）
-           └─ 只解一次，之后固定
+       [5] FrameAligner.add(node 位置, ENU)；基线足够时（重）估 T_world_enu
+           └─ 甲：bootstrap 立 gauge 后持续重估精化，不冻结
                        ↓
-       [6] 造因子：p_target = T_world_enu × ENU
-           └─ RtkNoisePolicy 决定 noise model 或拒绝
-           └─ AntennaPriorFactor(X(submap_id), p_target, t_imu_gnss, model)
+       [6] 造因子：p_world = T_world_enu × ENU
+           └─ RtkNoisePolicy 决定 noise model 或拒绝（不过门限则跳过该历元）
+           └─ AntennaPriorFactor(X(node_id), p_world, body_point, model)
+               odometry: body_point = lever_imu
+               global:   body_point = T_origin_frame(t) · lever_imu
                        ↓
-       [7] 入输出队列 ──→ on_smoother_update 中 drain 进因子图
+       [7] 入输出队列 ──→ 对应的 on_smoother_update 中 drain 进因子图
 ```
 
-[3][5] 自 `gnss_global` 移植（已验证部分，不重造）。**本模块的全部改进集中在 [6]**——这是一个**定权问题**，不是新的估计算法。
+[3][5] 自 `gnss_global` 移植其数学（已验证），但抽成 `gnss_core` 可测单元、且 `T_world_enu` 改为可重估。**改进集中在 [6]**（定权）与挂载点（帧/submap 而非只 submap 原点）。
 
 线程模型沿用 `gnss_global`：后台线程 + `ConcurrentVector` 队列；`on_smoother_update` 运行在优化器线程上，只做 drain + add，必须快。
+
+### 7.甲乙 T_world_enu 的估计（本轮=甲）
+
+- **甲（本轮）**：前若干帧/submap 攒够基线后 bootstrap 出 `T_world_enu` 立 gauge；之后每来新的"优化后 node 位置 ↔ ENU"对就**重估精化**（不冻结）。建图结束时用最终 gauge 给全部激光点赋 WGS-84 坐标。ENU 原点**始终固定**，不进图当变量。
+- **乙（记待办，本轮不做）**：把 world↔enu gauge 作为因子图变量联合优化，RTK 因子同时做配准 + 纠漂移；ENU 原点仍固定。最准但需自定义 gauge 因子、改动大。
 
 ### 7.2 `RtkNoisePolicy`（核心）
 
@@ -368,36 +399,50 @@ model = Robust(Huber(robust_delta), model)
 
 > `quality_sigma_scale` 的默认值为工程估计，**须经 §9 的实测标定后修订**。
 
-### 7.3 `AntennaPriorFactor`
+### 7.3 `AntennaPriorFactor`（统一 body_point 形式）
 
-补上上游明说忽略的 IMU-GNSS 变换。预测值：
+补上上游明说忽略的 IMU-GNSS 杆臂。**一个因子服务两个模块**，差异全在调用方传入的 `body_point`（天线在被约束 node 局部系里的位置）：
 
 ```
-h(X) = X.translation() + X.rotation() * t_imu_gnss
+AntennaPriorFactor(gtsam::Key key, Point3 measured_world, Point3 body_point, SharedNoiseModel);
+h(X) = X.transformFrom(body_point)          // X 是被约束 node 的位姿
+残差 = h(X) − measured_world
 ```
 
-带解析 Jacobian。**`t_imu_gnss = [0,0,0]` 时退化为普通平移先验**，故不引入标定风险；外参标定到位后直接生效。
+- `rtk_odometry`：X = `T_world_imu`，`body_point = lever_imu`（天线在 IMU 系）→ `h(X)=X·lever_imu`。
+- `rtk_global`：X = submap 原点位姿，`body_point = T_origin_frame(t)·lever_imu`（把杆臂先搬到 submap 原点系）→ 约束的几何是 **t 时刻车的真实天线位置**，而非 submap 原点。
+
+带解析 Jacobian（`X.transformFrom` 的 GTSAM 内建雅可比），须过 `numericalDerivative11` 数值校验。**`lever_imu = [0,0,0]` 且 `body_point` 为该 node 原点时退化为纯平移先验**，不引入标定风险；外参标定到位后填入即生效。
+
+> 相比原设计（`h(X)=X.t + X.R·lever`,只对 odometry 成立），`transformFrom(body_point)` 统一了两种挂载：odometry 传杆臂、global 传"帧偏移·杆臂",同一因子、同一 Jacobian。
 
 ### 7.4 模块结构
 
-不照抄 `gnss_global` 的单体 header（其 200 行 `backend_task()` 把关联、对齐、造因子全糅在一起，无法单测）。算法单元在 `gnss_core`，模块只做接线：
+不照抄 `gnss_global` 的单体 header（其 200 行 `backend_task()` 把关联、对齐、造因子全糅在一起，无法单测）。算法单元在 `gnss_core`，两个模块壳都只做接线：
 
 ```
+glim_ext/modules/odometry/rtk_odometry/
+├── package.xml / CMakeLists.txt          # → librtk_odometry.so
+├── include/glim_ext/rtk_odometry_module.hpp   # ExtensionModuleROS2，挂 OdometryEstimationCallbacks
+└── src/glim_ext/rtk_odometry_module_ros2.cpp  # + create_extension_module()
+
 glim_ext/modules/mapping/rtk_global/
-├── package.xml / CMakeLists.txt      # ament_auto_add_library → librtk_global.so
-├── include/glim_ext/rtk_global_module.hpp   # ExtensionModuleROS2 子类，仅接线
-└── src/glim_ext/rtk_global_module_ros2.cpp  # + create_extension_module()
+├── package.xml / CMakeLists.txt          # → librtk_global.so
+├── include/glim_ext/rtk_global_module.hpp     # ExtensionModuleROS2，挂 GlobalMappingCallbacks
+└── src/glim_ext/rtk_global_module_ros2.cpp    # + create_extension_module()
 ```
+
+两壳都 `find_package(gnss_core)` 并链接之；共用逻辑不在壳里重复。
 
 ### 7.5 配置
 
-`glim_ext/config/config_rtk_global.json`（JSON with comments，与 glim 其他配置一致）。
+两模块各一份配置：`config_rtk_odometry.json` 与 `config_rtk_global.json`，键集相同（下例以 global 为例；odometry 同结构，section 名为 `rtk_odometry`）。分开是因为两者门限/权重可独立调（例如 odometry 侧可更保守）。
 
 > GLIM 的 `Config` 只支持 section 内的**扁平**键值，类型限于 bool / int / double / string / `vector<...>` / `Eigen::Vector*d` / `Isometry3d`，故不使用嵌套对象。
 
 ```jsonc
 {
-  "rtk_global": {
+  "rtk_global": {   // odometry 侧改为 "rtk_odometry"
     // --- 输入 ---
     "rtk_fix_topic": "/cgi610/rtk_fix",
 
@@ -440,12 +485,14 @@ glim_ext/modules/mapping/rtk_global/
   "libmemory_monitor.so",
   "libstandard_viewer.so",
   "libimu_validator.so",
-  "librtk_global.so"        // ← 新增
-//"libgnss_global.so"       // ← 二选一，不得同时启用
+  "librtk_odometry.so",     // ← 新增(帧级约束)
+  "librtk_global.so"        // ← 新增(submap 级约束)
+//"libgnss_global.so"       // ← 与 rtk_global 二选一(下述)
 ]
 ```
 
-**必须二选一**：两模块都会对每个 submap 加平移先验，同时启用即重复约束、互相打架。A/B 对比通过注释切换。
+- `librtk_odometry.so` 与 `librtk_global.so` **可同时启用**——它们挂不同的图(odometry / global),不冲突,正是"两处都要"。
+- `librtk_global.so` 与 `libgnss_global.so` **二选一**:两者都对 submap 加位置先验,同开即重复约束打架。A/B 对比通过注释切换。
 
 ---
 
@@ -506,7 +553,7 @@ glim_ext/modules/mapping/rtk_global/
 
 | 轮 | 内容 | 依赖 |
 |---|---|---|
-| **1**（本轮实施） | `gnss_msgs`（RtkFix / RawStream）、`gnss_core` 骨架与约束单元（NoisePolicy / FixBuffer / FrameAligner / AntennaPriorFactor）、`rtk_global` 模块、驱动增发 `~/rtk_fix`、`.pos` **读取** + 轨迹对比与系数标定（§9） | — |
+| **1**（本轮实施） | `gnss_msgs`（RtkFix / RawStream）、`gnss_core` 骨架与约束单元（NoisePolicy / FixBuffer / FrameAligner〔可重估〕/ AntennaPriorFactor〔body_point 统一形式〕）、**`rtk_global`（submap 级）+ `rtk_odometry`（帧级）两个模块**、驱动增发 `~/rtk_fix`、`.pos` **读取** + 轨迹对比与系数标定（§9） | — |
 | **2** | `rtcm_bridge`、`rtkrcv_node`（B1–B3）、`.pos` **写出**（D1）、rosbag2 录制回放接入（A5/F1） | 轮 1 的消息与 core |
 | **3** | `gnss_core` 九条规则 + 事件机（C1–C10）、`gnss_diag` 双壳、`events.log`/`base.pos`（D2/D3）、清理逻辑（A6/D4） | 轮 2 的 `$SAT` 与 RTCM 流 |
 | **4** | 界面迁移（E1–E8，`register_ui_callback`）、报告离线工具（F2/F3） | 轮 3 的诊断输出 |
@@ -539,7 +586,7 @@ glim_ext/modules/mapping/rtk_global/
 
 ### 12.2 模块加载与订阅
 
-`librtk_global.so` 可被 GLIM 扩展机制加载、`create_extension_module()` 返回有效指针；发布合成 `RtkFix` 验证入队。
+`librtk_global.so` 与 `librtk_odometry.so` 均可被 GLIM 扩展机制加载、各自 `create_extension_module()` 返回有效指针；发布合成 `RtkFix` 验证入队。
 
 ### 12.3 合成注入（无实车即可验证核心行为）
 
