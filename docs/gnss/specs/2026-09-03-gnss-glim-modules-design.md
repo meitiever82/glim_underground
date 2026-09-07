@@ -1,6 +1,7 @@
 # GNSS 模块化设计（GLIM 生态）
 
 **状态**：已评审通过，作为后续各实施计划的约束权威
+**修订**：v2（2026-09-07）——依据 [2026-09-07-round1-review.md](2026-09-07-round1-review.md) 修订：轮 1 只做 `rtk_global`（`rtk_odometry` 移至轮 1.5）；`T_world_enu` 改为 bootstrap 后冻结；`RtkFix` 增加 `gnss_time`；配置增加 `stamp_source` / `time_offset`；杆臂未标定期间的 `sigma_floor` 约束；submap 跨线程访问规则；补合成注入测试与杆臂/时间偏移估计工具。修订处以 **[v2]** 标注。
 **前置文档**：[2026-08-31-rtk-monitor-design.md](2026-08-31-rtk-monitor-design.md)（rtk-monitor 单体应用设计，本文为其架构续篇）
 
 ---
@@ -81,6 +82,7 @@ rtk_odometry rtk_global      gnss_diag        （无 GLIM 时诊断/对比）
   往**submap 节点 `X(s)`** 加因子——负责大范围/长程的全局一致性（回环尺度），
   防止 global 优化把配准地图整体拽离 ENU。
 - 二者共用 `gnss_core`；odometry 保证局部轨迹全局参考，global 保证整图 georeference 不漂。
+- **[v2] 交付顺序**：轮 1 只交付 `rtk_global`，用实车/合成数据验证定权与杆臂建模后，轮 1.5 再做 `rtk_odometry`（复用同一套 core，只加壳）。"缺一不可"指最终形态，不指同一轮。
 
 ### 2.1 分层原则
 
@@ -160,7 +162,8 @@ guik::LightViewer::instance()->register_ui_callback("imu_calibration_validation"
 
 ```
 # gnss_msgs/RtkFix.msg —— 带质量标签的 GNSS 定位
-std_msgs/Header header
+std_msgs/Header header    # 接收/发布时刻（ROS 时钟）
+float64 gnss_time         # [v2] 板卡自报的观测时刻（UTC unix 秒；由 GPS 周/周内秒换算）。0 = 源不提供
 
 # 归一化解质量（源无关）
 uint8 QUALITY_NONE=0
@@ -199,6 +202,13 @@ bool heading_valid
 | `NO_FIX` (0) | `QUALITY_NONE` | false |
 
 字段来源均为 `cgi610::Cycle` 已解析的成员：`lat_deg`/`lon_deg`/`alt_m`、`pos_sigma_enu_m[3]`、`gps_age_s`、`sats_used`/`sats_main`/`sats_aux`、`heading_deg`、`att_sigma_deg[0]`。
+
+**[v2] 关于时间戳**：项目现场的传感器时间同步尚不可靠。`header.stamp` 若是主机接收时刻，串口/CAN 延迟几十 ms 在 5 m/s 车速下即 10–25 cm，与建图分层指标（0.25 m）同量级。因此：
+- `gnss_time` 取板卡自报的观测时刻（GPCHC/CAN 帧内的 GPS 周与周内秒 → UTC unix 秒，闰秒当前 18 s）；`Cycle` 若尚未解析该字段，驱动侧需补解析。
+- `header.stamp − gnss_time` 即接收延迟，可在线诊断（轮 3 规则链可加 `stamp_skew`）。
+- `COMBINED_DR` 状态下 `heading_valid = false`（航向来自惯导递推，不是双天线观测）。
+- `pos_sigma_enu_m` 的分量顺序须在驱动侧核对板卡协议（板卡常按 N/E/U 给出），保证进 `RtkFix.sigma_enu` 时为 E/N/U。
+- `~/rtk_fix` 用 **reliable** QoS 发布：GLIM 的 `TopicSubscription` 固定以默认（reliable）QoS 订阅，best_effort 发布会静默不匹配。
 
 **故意不含速度字段**：`rtk_global` 用不上，驱动已发 `nav_msgs/Odometry`；待真正实现 odometry 约束模块时再议（YAGNI）。
 
@@ -316,7 +326,9 @@ gnss_core/
 
 **不需要 `Geoid`**：GNSS 出椭球高，矿区范围内 geoid 差为常数，会被 `T_world_enu` 的平移吸收。
 
-**FrameAligner 为何在 core**：它只是点集配准（Umeyama），纯 Eigen、无 GLIM 类型依赖；且 `rtk_odometry` 与 `rtk_global` 两个模块都要用（各自 world 系不同，各持一个 FrameAligner 实例），放共享 core 而非某模块内以避免重复。它提供"重估"接口（`add` 累积点对、随优化推进重算 T），不是一次冻结。
+**FrameAligner 为何在 core**：它只是点集配准（Umeyama），纯 Eigen、无 GLIM 类型依赖；且 `rtk_odometry` 与 `rtk_global` 两个模块都要用（各自 world 系不同，各持一个 FrameAligner 实例），放共享 core 而非某模块内以避免重复。
+
+**[v2] 一次 bootstrap 后冻结，不持续重估。** v1 设想"随优化推进重算 T"，评审指出这是反馈回路：RTK 因子进图后，node 位置已被 `T_world_enu × ENU` 拉过去，再用它们反推 `T_world_enu` 是用结果验证前提；更实际的问题是旧因子按旧 gauge 算 `p_world`、新因子按新 gauge，图里同时存在两套基准。轮 1 与 `gnss_global` 一样在基线足够时解一次并冻结；`FrameAligner::add` 在 `initialized()` 后只累积不重解。真正的联合估计走 §7.乙。
 
 ---
 
@@ -348,8 +360,8 @@ GLIM 回调（新帧 / 新 submap）─→ [2] 目标 node 入队（带 id 与�
                        ↓
        [4] 经纬高 → ENU（GeographicLib::LocalCartesian，原点固定）
                        ↓
-       [5] FrameAligner.add(node 位置, ENU)；基线足够时（重）估 T_world_enu
-           └─ 甲：bootstrap 立 gauge 后持续重估精化，不冻结
+       [5] FrameAligner.add(node 位置, ENU)；基线足够时估一次 T_world_enu
+           └─ 甲 [v2]：bootstrap 立 gauge 后冻结（理由见 §6.1）
                        ↓
        [6] 造因子：p_world = T_world_enu × ENU
            └─ RtkNoisePolicy 决定 noise model 或拒绝（不过门限则跳过该历元）
@@ -364,9 +376,13 @@ GLIM 回调（新帧 / 新 submap）─→ [2] 目标 node 入队（带 id 与�
 
 线程模型沿用 `gnss_global`：后台线程 + `ConcurrentVector` 队列；`on_smoother_update` 运行在优化器线程上，只做 drain + add，必须快。
 
+**[v2] 跨线程访问规则**：`callbacks.hpp` 明确 `submap->T_world_origin` 只在 global mapping 线程更新，跨线程读不安全（`gnss_global` 在后台线程读它，是已知缺陷）。`on_insert_submap` 回调本身运行在 global mapping 线程，因此在回调内把 `id`、`origin_frame()->stamp`、`T_world_origin.translation()` 拷进一个 POD（`SubmapAnchor`）再入队，后台线程**不持有 `SubMap` 指针**。odometry 侧同理（`on_new_frame` 内拷 `id`/`stamp`/`T_world_imu`）。
+
+**[v2] 时间戳选择**：入 `RtkFixBuffer` 前，样本时间 `stamp = (stamp_source == "gnss_time" && gnss_time > 0 ? gnss_time : header.stamp) + time_offset`。`gnss_core::effective_stamp()` 实现，可单测。
+
 ### 7.甲乙 T_world_enu 的估计（本轮=甲）
 
-- **甲（本轮）**：前若干帧/submap 攒够基线后 bootstrap 出 `T_world_enu` 立 gauge；之后每来新的"优化后 node 位置 ↔ ENU"对就**重估精化**（不冻结）。建图结束时用最终 gauge 给全部激光点赋 WGS-84 坐标。ENU 原点**始终固定**，不进图当变量。
+- **甲（本轮，[v2] 冻结版）**：前若干帧/submap 攒够基线后 bootstrap 出 `T_world_enu` 立 gauge，之后冻结。建图结束时用该 gauge 给全部激光点赋 WGS-84 坐标。ENU 原点**始终固定**，不进图当变量。
 - **乙（记待办，本轮不做）**：把 world↔enu gauge 作为因子图变量联合优化，RTK 因子同时做配准 + 纠漂移；ENU 原点仍固定。最准但需自定义 gauge 因子、改动大。
 
 ### 7.2 `RtkNoisePolicy`（核心）
@@ -412,7 +428,11 @@ h(X) = X.transformFrom(body_point)          // X 是被约束 node 的位姿
 - `rtk_odometry`：X = `T_world_imu`，`body_point = lever_imu`（天线在 IMU 系）→ `h(X)=X·lever_imu`。
 - `rtk_global`：X = submap 原点位姿，`body_point = T_origin_frame(t)·lever_imu`（把杆臂先搬到 submap 原点系）→ 约束的几何是 **t 时刻车的真实天线位置**，而非 submap 原点。
 
-带解析 Jacobian（`X.transformFrom` 的 GTSAM 内建雅可比），须过 `numericalDerivative11` 数值校验。**`lever_imu = [0,0,0]` 且 `body_point` 为该 node 原点时退化为纯平移先验**，不引入标定风险；外参标定到位后填入即生效。
+带解析 Jacobian（`X.transformFrom` 的 GTSAM 内建雅可比），须过 `numericalDerivative11` 数值校验。**`lever_imu = [0,0,0]` 且 `body_point` 为该 node 原点时退化为纯平移先验**；外参标定到位后填入即生效。
+
+**[v2] 轮 1 的 `rtk_global` 在 `origin_frame()->stamp` 处取 RTK 样本，此时 `T_origin_frame = I`，`body_point = lever_imu`。** 因子构造参数命名为 `body_point`，壳侧注释说明这一等价关系；轮 1.5 的 odometry 壳直接传 `lever_imu`。
+
+**[v2] "杆臂为零退化为纯平移先验"不等于"没有风险"**：矿卡天线到 IMU 通常 1–3 m。杆臂不填时转弯处残差可达米级，若 `sigma_floor` 仍是 2 cm，Huber（δ=1.345σ）会把转弯段的**好固定解**当外点系统性降权，只剩直线段起作用——与期望相反。故：**杆臂未标定期间 `sigma_floor` 必须设为杆臂量级（默认 1.0 m）**，用 §9.3 工具标定杆臂后再降到 cm 级。
 
 > 相比原设计（`h(X)=X.t + X.R·lever`,只对 odometry 成立），`transformFrom(body_point)` 统一了两种挂载：odometry 传杆臂、global 传"帧偏移·杆臂",同一因子、同一 Jacobian。
 
@@ -444,10 +464,12 @@ glim_ext/modules/mapping/rtk_global/
 {
   "rtk_global": {   // odometry 侧改为 "rtk_odometry"
     // --- 输入 ---
-    "rtk_fix_topic": "/cgi610/rtk_fix",
+    "rtk_fix_topic": "/gnss_cgi610/rtk_fix",   // [v2] 驱动包 gnss_chcnav、节点名 gnss_cgi610
+    "stamp_source": "gnss_time",         // [v2] header | gnss_time（gnss_time==0 时回退 header）
+    "time_offset": 0.0,                  // [v2] s，加到样本时间上；由 §9.3 工具估计
 
     // --- 门限：任一不过 → 该历元不加因子 ---
-    "min_quality": 3,          // 归一化 quality 下限，3=FLOAT
+    "min_quality": 3,          // 归一化 quality 下限，3=FLOAT（>4 为配置错误，启动即报错）
     "max_diff_age": 15.0,      // s
     "min_sats": 6,
 
@@ -456,13 +478,15 @@ glim_ext/modules/mapping/rtk_global/
     // 若将 min_quality 降至 0，实现须拒绝非正的 scale 而非产生零 σ（无穷权重）。
     //                       [NONE, SINGLE, DGPS, FLOAT, FIXED]
     "quality_sigma_scale": [   0.0,   50.0,  20.0,   5.0,   1.0],
-    "sigma_floor": [0.02, 0.02, 0.05],   // ENU 下限 (m)，防单历元独大
+    // [v2] 杆臂未标定期间 sigma_floor 取杆臂量级（1.0 m），否则 Huber 会把转弯段固定解当外点；
+    //      T_imu_gnss 标定填入后改回 [0.02, 0.02, 0.05]
+    "sigma_floor": [1.0, 1.0, 1.0],      // ENU 下限 (m)
     "vertical_scale": 3.0,
     "robust_kernel": "huber",            // none | huber | cauchy
     "robust_delta": 1.345,
 
     // --- 外参 ---
-    "T_imu_gnss": [0.0, 0.0, 0.0],       // 天线杆臂 (m, IMU 系)
+    "T_imu_gnss": [0.0, 0.0, 0.0],       // 天线杆臂 (m, IMU 系)；用 §9.3 工具估计或量取
 
     // --- 帧对齐 ---
     "min_baseline": 10.0,                // m
@@ -493,6 +517,10 @@ glim_ext/modules/mapping/rtk_global/
 
 - `librtk_odometry.so` 与 `librtk_global.so` **可同时启用**——它们挂不同的图(odometry / global),不冲突,正是"两处都要"。
 - `librtk_global.so` 与 `libgnss_global.so` **二选一**:两者都对 submap 加位置先验,同开即重复约束打架。A/B 对比通过注释切换。
+
+**[v2] 构建形态**：`glim_ext` 是**一个** ament 包，各模块经顶层 `CMakeLists.txt` 的 `option(ENABLE_xxx)` + `add_subdirectory(modules/...)` 编入，产物统一装到 `install/glim_ext/lib/`。新模块因此不是独立 colcon 包，而是：`glim_ext/CMakeLists.txt` 加 `option(ENABLE_RTK_GLOBAL)` 与 `add_subdirectory`，`glim_ext/package.xml` 加 `<depend>gnss_core</depend>` `<depend>gnss_msgs</depend>`（模块 CMake 的 `ament_auto_find_build_dependencies()` 从这里取依赖）。构建命令是 `colcon build --packages-select glim_ext`。
+
+实际布局（2026-09-07 核实）：`gnss_msgs` 与 `gnss_CGI610` 正本在 `finder_ros/drivers/`（`driver_ws/src` 下为符号链接）；`gnss_core` 位于 `glim_ext/gnss_core/`，由 colcon 在 `glim_ws` 内识别为独立包 `gnss_core`（仍满足 §2.1 "单独成包、不依赖 glim_ext"——它只是放在同一仓库目录下）。构建 `glim_ws` 前须 `source ~/driver_ws/install/setup.bash` 以获得 `gnss_msgs`。
 
 ---
 
@@ -547,13 +575,30 @@ glim_ext/modules/mapping/rtk_global/
 
 产出一张标定表，写入 `config_rtk_global.json`。至此定权策略有实测支撑，而非估计值。
 
+**[v2] 统计量**："实际误差 / 板卡 σ" 的**算术均值**会被少数外点主导（一次错误固定 σ=3 mm、误差 1 m → 比值 300）。同时输出**中位数**与 `RMS(误差)/RMS(σ)`，建议系数取中位数；均值仅作参考列。
+
+**[v2] `.pos` 时间系统**：RTKLIB `.pos` 默认时间列为 **GPST**（比 UTC 快 18 s），头部 `% (time=GPST)` 或 `(time=UTC)` 标明。`pos_io` 须识别并统一到 UTC unix 秒（闰秒可配置），否则与 ROS 时间戳导出的轨迹按 0.1 s 容差配对会全部落空。
+
+### 9.3 [v2] 杆臂与时间偏移估计（无需专用标定场）
+
+项目现场的 IMU–GNSS 杆臂与 RTK–LiDAR 时间偏移都未标定，而二者直接决定 §7.2/§7.3 的有效性。用建图产物即可估计：
+
+输入：GLIM 输出的 IMU 轨迹 `T_world_imu(t_i)`（`glim_rosbag` dump 的 traj）与同段 RTK 的 ENU 轨迹 `enu(t)`。
+模型：对每个 `t_i`，`R_world_imu(t_i)·lever + t_world_imu(t_i) = T_world_enu · enu(t_i + Δt)`。
+求解：外层对 `Δt` 网格搜索（±0.5 s、步长 10 ms），内层给定 `Δt` 时 `(T_world_enu 的 yaw/平移, lever)` 是线性最小二乘（`R_world_imu` 已知，对 `lever` 线性；yaw 用 Umeyama 初值后一步 Gauss-Newton）。取残差最小的 `Δt`。
+输出：`lever_imu`、`time_offset`、各自的残差 RMS 与可观性提示（轨迹无转弯则 `lever` 水平分量不可观，工具须报告）。
+产出直接填入 `config_rtk_global.json` 的 `T_imu_gnss` 与 `time_offset`。
+
+这个工具与 §9.2 用同一批数据，不阻塞于专用标定。
+
 ---
 
 ## 10. 实施轮次
 
 | 轮 | 内容 | 依赖 |
 |---|---|---|
-| **1**（本轮实施） | `gnss_msgs`（RtkFix / RawStream）、`gnss_core` 骨架与约束单元（NoisePolicy / FixBuffer / FrameAligner〔可重估〕/ AntennaPriorFactor〔body_point 统一形式〕）、**`rtk_global`（submap 级）+ `rtk_odometry`（帧级）两个模块**、驱动增发 `~/rtk_fix`、`.pos` **读取** + 轨迹对比与系数标定（§9） | — |
+| **1**（本轮实施，[v2]） | `gnss_msgs`（RtkFix〔含 gnss_time〕/ RawStream）、`gnss_core` 骨架与约束单元（NoisePolicy / FixBuffer / FrameAligner〔冻结〕/ AntennaPriorFactor〔body_point〕/ effective_stamp）、**`rtk_global`（submap 级）**、驱动增发 `~/rtk_fix`、`.pos` **读取**（GPST/UTC）+ 轨迹对比与系数标定（§9.2）、**合成注入测试（§12.3）**、**杆臂/时间偏移估计工具（§9.3）** | — |
+| **1.5** [v2] | `rtk_odometry`（帧级壳，复用 core），在 `rtk_global` 实车验证通过后 | 轮 1 |
 | **2** | `rtcm_bridge`、`rtkrcv_node`（B1–B3）、`.pos` **写出**（D1）、rosbag2 录制回放接入（A5/F1） | 轮 1 的消息与 core |
 | **3** | `gnss_core` 九条规则 + 事件机（C1–C10）、`gnss_diag` 双壳、`events.log`/`base.pos`（D2/D3）、清理逻辑（A6/D4） | 轮 2 的 `$SAT` 与 RTCM 流 |
 | **4** | 界面迁移（E1–E8，`register_ui_callback`）、报告离线工具（F2/F3） | 轮 3 的诊断输出 |
@@ -580,13 +625,15 @@ glim_ext/modules/mapping/rtk_global/
 |---|---|
 | `RtkNoisePolicy` | 各质量档缩放正确；三道门限各自触发拒绝；`sigma_floor` 生效（板卡报 1 mm → 抬至 2 cm）；`vertical_scale` 仅作用于 Z；阈值边界行为 |
 | `RtkFixBuffer` | 线性插值正确；**质量取两端较差者**（FIXED 与 SINGLE 之间插出 SINGLE）；时间戳越界返回空；超期样本清理 |
-| `FrameAligner` | 构造已知 `T_world_enu` → 合成 (submap, ENU) 对 → 验证 SVD 可恢复；基线不足不初始化；共线退化行为 |
+| `FrameAligner` | 构造已知 `T_world_enu` → 合成 (submap, ENU) 对 → 验证 SVD 可恢复；基线不足不初始化；**初始化后再 add 不改变 T（冻结）[v2]**；共线退化行为 |
+| `effective_stamp` [v2] | `gnss_time` 优先、为 0 回退 `header`、`time_offset` 叠加 |
+| `pos_io` [v2] | GPST 头 → 减闰秒；UTC 头 → 原样 |
 | `AntennaPriorFactor` | **Jacobian 数值验证**（`gtsam::numericalDerivative11` 对比解析式）；杆臂为零时与 `PoseTranslationPrior` 结果一致 |
 | 规则链 / 事件机 | 沿用 rtk-monitor 既有用例（构造指标序列断言结论） |
 
 ### 12.2 模块加载与订阅
 
-`librtk_global.so` 与 `librtk_odometry.so` 均可被 GLIM 扩展机制加载、各自 `create_extension_module()` 返回有效指针；发布合成 `RtkFix` 验证入队。
+`librtk_global.so`（轮 1.5 起含 `librtk_odometry.so`）可被 GLIM 扩展机制加载。**[v2] 验证方式**：用一段短 bag 跑 `glim_rosbag`，`config_ros.json` 启用该模块，断言日志出现模块初始化与 `T_world_enu=` 行、收到的 `RtkFix` 计数 > 0。不用脱离 GLIM 进程的 `dlopen`/ctypes 调 `create_extension_module()`——构造函数依赖 GLIM 全局 config 并起线程，脱离进程既跑不起来也验证不了任何东西。
 
 ### 12.3 合成注入（无实车即可验证核心行为）
 
@@ -601,6 +648,8 @@ glim_ext/modules/mapping/rtk_global/
 
 **该层的价值**：验证的恰是 `gnss_global` 做不到的部分，且结论不依赖真实 RTK 数据——注入的是已知真值。
 
+**[v2] 实现载体**：`gnss_core/tools/synth_rtk_fix`——读 GLIM 轨迹 → `LocalCartesian::Reverse` 反算 lat/lon/alt → 加噪声与质量标签、按注入脚本篡改 → 写出 `.pos` 与 `RtkFix` bag（bag 写出用 Python `rosbag2_py`，在 Orin 上跑）。四种注入各一个用例，验收指标为轨迹 RMSE 对比。这是轮 1 必做项，不再只是"策略"。
+
 ### 12.4 实车对比（需现场数据，此处仅定验收标准）
 
 录一段 LiDAR + IMU + RTK 的包后，同一包分别挂 `libgnss_global.so` 与 `librtk_global.so`，对比：轨迹相对固定解历元的 RMSE、重复路段点云重合度、优化器残差分布。
@@ -614,7 +663,10 @@ glim_ext/modules/mapping/rtk_global/
 | 项 | 影响 | 处理 |
 |---|---|---|
 | `quality_sigma_scale` 默认值为估计值 | 直接决定定权效果 | §9 实测标定后修订；轮 1 必做 |
-| IMU-GNSS 杆臂未标定 | 转弯时系统性偏移 | 因子已支持，默认零即退化；标定后填入配置 |
+| IMU-GNSS 杆臂未标定 [v2] | 转弯时米级残差；配 cm 级 `sigma_floor` 时 Huber 会把转弯段固定解当外点 | 未标定期间 `sigma_floor`=1.0 m；§9.3 工具用建图数据估计杆臂后填入并降 floor |
+| RTK 与 LiDAR 时间戳不同源 [v2] | 几十 ms 延迟 = 10–25 cm 位置误差，与分层指标同量级 | `RtkFix.gnss_time` + `stamp_source`/`time_offset`；§9.3 工具估计 `time_offset` |
+| `.pos` 时间系统 GPST≠UTC [v2] | 轨迹配对全部落空 | `pos_io` 识别头部时间系统并统一到 UTC |
+| 云端/CI 的 GTSAM 为 4.2，Orin 为 4.3 [v2] | 接口差异 | `gnss_core` 只用两版共有接口（`NoiseModelFactorN`、`OptionalMatrixType`），CMake 不锁 4.3 |
 | GeographicLib 的 rosdep key 未验证 | 构建依赖声明 | 轮 1 首个任务确认（预期为 `geographiclib`） |
 | `gnss_diag` 在 `glim_ext` 中的目录归类 | 仅影响路径 | 暂置于 `modules/mapping/`（GNSS 约束属 mapping 侧） |
 | rosbag2 无保留天数/水位清理 | 长期无人值守磁盘占满 | 轮 3 的清理逻辑（A6） |
