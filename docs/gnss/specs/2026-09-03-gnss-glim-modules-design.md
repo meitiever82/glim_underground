@@ -378,6 +378,8 @@ GLIM 回调（新帧 / 新 submap）─→ [2] 目标 node 入队（带 id 与�
 
 **[v2] 跨线程访问规则**：`callbacks.hpp` 明确 `submap->T_world_origin` 只在 global mapping 线程更新，跨线程读不安全（`gnss_global` 在后台线程读它，是已知缺陷）。`on_insert_submap` 回调本身运行在 global mapping 线程，因此在回调内把 `id`、`origin_frame()->stamp`、`T_world_origin.translation()` 拷进一个 POD（`SubmapAnchor`）再入队，后台线程**不持有 `SubMap` 指针**。odometry 侧同理（`on_new_frame` 内拷 `id`/`stamp`/`T_world_imu`）。
 
+**[v2] 门限先于对齐**：实现中 [6] 的三道门限先于 [5] 执行——只有通过 `RtkNoisePolicy` 的样本才喂 `FrameAligner` 并定义 ENU 原点，避免 SINGLE/DGPS 米级解参与 SVD 后被冻结进 gauge。bootstrap 前被接受的样本暂存，gauge 立起后一次性补发因子，因此前 `min_baseline` 段的 submap 也有 RTK 约束（`gnss_global` 会丢掉这一段）。
+
 **[v2] 时间戳选择**：入 `RtkFixBuffer` 前，样本时间 `stamp = (stamp_source == "gnss_time" && gnss_time > 0 ? gnss_time : header.stamp) + time_offset`。`gnss_core::effective_stamp()` 实现，可单测。
 
 ### 7.甲乙 T_world_enu 的估计（本轮=甲）
@@ -435,6 +437,10 @@ h(X) = X.transformFrom(body_point)          // X 是被约束 node 的位姿
 **[v2] "杆臂为零退化为纯平移先验"不等于"没有风险"**：矿卡天线到 IMU 通常 1–3 m。杆臂不填时转弯处残差可达米级，若 `sigma_floor` 仍是 2 cm，Huber（δ=1.345σ）会把转弯段的**好固定解**当外点系统性降权，只剩直线段起作用——与期望相反。故：**杆臂未标定期间 `sigma_floor` 必须设为杆臂量级（默认 1.0 m）**，用 §9.3 工具标定杆臂后再降到 cm 级。
 
 > 相比原设计（`h(X)=X.t + X.R·lever`,只对 odometry 成立），`transformFrom(body_point)` 统一了两种挂载：odometry 传杆臂、global 传"帧偏移·杆臂",同一因子、同一 Jacobian。
+
+### 7.3.1 [v2] 共用流水线 `gnss_core::AnchorPipeline`
+
+§7.1 的 [1]–[6] 在两个壳里完全相同，实现为 `gnss_core::AnchorPipeline`（纯数据、无线程、无 ROS/GLIM、可单测）：`push_fix` / `push_anchor(id, stamp, t_world)` / `process() → Constraint{id, stamp, p_world, model}`。壳只做：订阅与取样（`effective_stamp`、finite/skew 过滤，见 `glim_ext/include/glim_ext/rtk/rtk_shell_common.hpp`）、线程与队列、把 `Constraint` 变成 `AntennaPriorFactor(X(id), p_world, body_point, model)` 并在各自的 `on_smoother_update` 里加入图。`rtk_odometry` 额外有 fixed-lag 守卫：只对比最新帧新于 `smoother_lag − smoother_lag_margin` 的帧加因子。
 
 ### 7.4 模块结构
 
@@ -598,7 +604,7 @@ glim_ext/modules/mapping/rtk_global/
 | 轮 | 内容 | 依赖 |
 |---|---|---|
 | **1**（本轮实施，[v2]） | `gnss_msgs`（RtkFix〔含 gnss_time〕/ RawStream）、`gnss_core` 骨架与约束单元（NoisePolicy / FixBuffer / FrameAligner〔冻结〕/ AntennaPriorFactor〔body_point〕/ effective_stamp）、**`rtk_global`（submap 级）**、驱动增发 `~/rtk_fix`、`.pos` **读取**（GPST/UTC）+ 轨迹对比与系数标定（§9.2）、**合成注入测试（§12.3）**、**杆臂/时间偏移估计工具（§9.3）** | — |
-| **1.5** [v2] | `rtk_odometry`（帧级壳，复用 core），在 `rtk_global` 实车验证通过后 | 轮 1 |
+| **1.5** [v2] | `rtk_odometry`（帧级壳，复用 core）——代码已于 2026-09-08 写好（`gnss_core::AnchorPipeline` + 薄壳），**启用**须待 `rtk_global` 实车验证通过 | 轮 1 |
 | **2** | `rtcm_bridge`、`rtkrcv_node`（B1–B3）、`.pos` **写出**（D1）、rosbag2 录制回放接入（A5/F1） | 轮 1 的消息与 core |
 | **3** | `gnss_core` 九条规则 + 事件机（C1–C10）、`gnss_diag` 双壳、`events.log`/`base.pos`（D2/D3）、清理逻辑（A6/D4） | 轮 2 的 `$SAT` 与 RTCM 流 |
 | **4** | 界面迁移（E1–E8，`register_ui_callback`）、报告离线工具（F2/F3） | 轮 3 的诊断输出 |

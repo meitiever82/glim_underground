@@ -54,7 +54,15 @@
 
 下文各 Task 的步骤对已完成部分照旧保留(作为规格记录),执行时只做"v2 增量"列的内容;已通过的测试不得回退。
 
-**2026-09-07 进展**:Task 2–7、10–14 全部完成并经独立评审修复(云端 GTSAM 4.2a9 纯 CMake:10 个测试可执行 60 用例全绿,`-Wall -Wextra` 零 warning),已写回 `glim_ws/src/glim_ext/gnss_core/`。评审后追加的接口:`RtkFixBuffer::interpolate(t, max_gap_s)`、`oldest_stamp()`、`AntennaPriorFactor::create()`、`RtkNoisePolicy` 拒绝越界 quality 与非有限 σ、`FrameAligner` 退化保护(ENU 基线 + SVD 奇异值)。**待 Orin 上 GTSAM 4.3 复核**(`antenna_prior_factor.hpp` 的 4.3 分支未在云端编过)。评审遗留(带到 1.5):`RtkNoisePolicy` 拒绝原因枚举、航向 360° 回绕插值、`trajectory_compare` 的 ref 质量过滤与 Rayleigh 中位数偏差说明、`export_bag_to_pos.py --db` 未实现(rtk-monitor SQLite schema 不可见)。剩余:Task 1 增量、8、9(需 Orin)。
+**2026-09-07 进展**:Task 2–7、10–14 全部完成并经独立评审修复(云端 GTSAM 4.2a9 纯 CMake:10 个测试可执行 60 用例全绿,`-Wall -Wextra` 零 warning),已写回 `glim_ws/src/glim_ext/gnss_core/`。评审后追加的接口:`RtkFixBuffer::interpolate(t, max_gap_s)`、`oldest_stamp()`、`AntennaPriorFactor::create()`、`RtkNoisePolicy` 拒绝越界 quality 与非有限 σ、`FrameAligner` 退化保护(ENU 基线 + SVD 奇异值)。**待 Orin 上 GTSAM 4.3 复核**(`antenna_prior_factor.hpp` 的 4.3 分支未在云端编过)。评审遗留(带到 1.5):`RtkNoisePolicy` 拒绝原因枚举、航向 360° 回绕插值、`trajectory_compare` 的 ref 质量过滤与 Rayleigh 中位数偏差说明、`export_bag_to_pos.py --db` 未实现(rtk-monitor SQLite schema 不可见)。Task 1 增量、8、9 的代码已于 2026-09-08 写回(`finder_ros/drivers/gnss_msgs`、`finder_ros/drivers/gnss_CGI610`、`glim_ext/modules/mapping/rtk_global`、`glim_ext/{CMakeLists.txt,package.xml,config/config_rtk_global.json}`、`glim_underground/config/casbot/config_ros.json`),**均未在 Orin 上编译**。Task 9 评审后追加:模块自带 `package.xml`(`ament_auto_find_build_dependencies()` 读的是模块目录的 package.xml,不是顶层的——PLAN Global Constraints 里那句写错了);`max_stamp_skew`(单个错误板卡时间不能清空缓冲);`fix_buffer_horizon` 默认 600 s(global mapping 相对 RTK 流的滞后 + 停车时的长 submap);bootstrap 前被接受的样本暂存、gauge 立起后一次性补发因子;只有过门限的样本才喂 FrameAligner(spec §7.1 顺序的有利偏离);`at_exit()` 提前停后台线程;计数拆为 fix_dropped / anchor_rejected / prebootstrap_released。若 colcon 把 `modules/mapping/rtk_global` 识别成独立包,在该目录放 `COLCON_IGNORE`(gnss_global 同样带 package.xml 且未被单独构建,预期不需要)。
+
+**2026-09-08 晚(轮 1.5 提前实施,均未在 Orin 上编译)**:
+- **Task 15 `gnss_core::AnchorPipeline`**:两个壳共用的后台逻辑(缓冲→插值→门限→ENU 原点/T_world_enu bootstrap→约束输出,bootstrap 前 deferred 补发)下沉到 core,7 个用例(干净数据全部约束、等待、TooOld、Gap、Gated、配置 ENU 原点、非法配置),core 共 11 可执行 67 用例全绿。`FrameAligner` 冻结后不再累积点对。
+- **Task 16 `rtk_odometry`**(`glim_ext/modules/odometry/rtk_odometry/`):挂 `OdometryEstimationCallbacks::{on_update_new_frame, on_smoother_update}`;`smoother_lag` 从 `config_odometry` 读,`smoother_lag_margin`(默认 1 s)内的帧才加因子,后台线程按 lag 预过滤、`on_smoother_update` 再兜底;`config_rtk_odometry.json`,section `rtk_odometry`;`config_ros.json` 里**注释状态**,rtk_global 验证通过后再启用。
+- `rtk_global` 改为薄壳,与 `rtk_odometry` 共用 `glim_ext/include/glim_ext/rtk/rtk_shell_common.hpp`(配置加载、RtkFix 转样本 + finite/skew 过滤)。
+- `casbot/config.json` 加 `config_rtk_global` / `config_rtk_odometry` 键(`GlobalConfigExt::get_config_path` 否则会去 cwd 找);两份配置也放进 `casbot/`。
+- `min_baseline` 默认改 50 m:冻结 gauge 的 yaw 误差 ≈ σ_h/基线,10 m 基线 + 1 cm 噪声 → 100 m 处 10 cm;anchor 先 deferred 不丢,长基线对 rtk_global 无代价。
+- `glim_ext/CMakeLists.txt` 的两个 RTK 模块只在 `ROS_VERSION==2` 时编入。
 
 ## 文件结构
 
@@ -1958,3 +1966,19 @@ Task 9 + Task 13 → Task 9 Step 6 与 Task 13 Step 6 的 bag 验证(需 Orin)
 - 合成注入四用例结果表产出(Task 13 Step 6),至少"5% 错误固定:huber ≈ 干净 / none 恶化"与"杆臂填对后转弯段改善"两条成立
 - `calibrate_sigma_scale` 能对成对 `.pos` 产出分档统计与建议系数;`estimate_lever_arm` 在合成数据上恢复杆臂(< 5 cm)与时间偏移(< 11 ms)
 - `config_rtk_global.json` 的 `sigma_floor` 注释与 spec §7.3 v2 一致;杆臂标定前为 1.0 m
+
+## 2026-09-09 Orin 验证清单(plan 各 Task 的验证步骤汇总,按依赖顺序)
+
+代码层面 Task 1–16 与评审遗留四项均已落盘(gnss_core 云端 11 可执行 83 用例 + Python 10 用例全绿);以下每一步在 Orin 上完成即可勾掉。
+
+- [ ] **V1 driver_ws**:`cd ~/driver_ws && colcon build --packages-select gnss_msgs gnss_chcnav --cmake-args -DBUILD_TESTING=ON && colcon test --packages-select gnss_chcnav --event-handlers console_direct+`;`ros2 interface show gnss_msgs/msg/RtkFix` 含 `gnss_time`;`test_rtk_fix_mapping` 11 用例通过(Task 1/8)
+- [ ] **V2 gnss_core(GTSAM 4.3)**:`source ~/driver_ws/install/setup.bash && cd ~/glim_ws && colcon build --packages-select gnss_core --cmake-args -DBUILD_TESTING=ON && colcon test --packages-select gnss_core --event-handlers console_direct+`;11 可执行 83 用例;关注 `antenna_prior_factor.hpp` 的 4.3 分支(Task 7)
+- [ ] **V3 glim_ext**:`colcon build --packages-select glim_ext --event-handlers console_direct+`;生成 `install/glim_ext/lib/{librtk_global,librtk_odometry}.so`;若 `colcon list` 出现独立包 `rtk_global`/`rtk_odometry`,在其目录放 `COLCON_IGNORE`(Task 9/16)
+- [ ] **V4 有 CAN 的 bag**:回放后 `ros2 topic echo /gnss_cgi610/rtk_fix`,`quality` 随状态变化;`timestamp_source=arrival` 时记录 `header.stamp − gnss_time`(Task 8 Step 6)
+- [ ] **V5 rtk_global bag 验证**:`ros2 run glim_ros glim_rosbag <bag> 2>&1 | tee /tmp/rtk_global.log && bash src/glim_ext/modules/mapping/rtk_global/tools/check_rtk_global_log.sh /tmp/rtk_global.log`(Task 9 Step 6)。无实车 RtkFix bag 时先做 V7 合成
+- [ ] **V6 实车数据导出**:`export_bag_to_pos.py --db <rtk-monitor.db> --src can/gpchc/rtkrcv`,核对 610 状态映射与 `t` 的时间系统(Task 12 Step 4);`calibrate_sigma_scale ref.pos test.pos` 出分档表
+- [ ] **V7 合成注入**:纯 LiDAR bag 跑 GLIM 得 `traj_imu.txt` → `synth_rtk_fix` → `pos_to_rtkfix_bag.py --merge`(首次运行,rosbag2_py API 未验证)→ `run_injection_suite.sh`(Task 13 Step 5–6);至少验证"5% 错误固定 huber≈干净/none 恶化"与"杆臂填对后转弯段改善"
+- [ ] **V8 杆臂/时间偏移**:`estimate_lever_arm traj_imu.txt rtk.pos`,结果填 `config_rtk_global.json` 的 `T_imu_gnss`/`time_offset`,`sigma_floor` 降到 `[0.05,0.05,0.1]` 后重跑 V5(Task 14 Step 4)
+- [ ] **V9 rtk_odometry**:V5 通过后在 `config_ros.json` 打开 `librtk_odometry.so`,重跑 bag,日志有 `rtk_odometry stats: ... factors_added>0 dropped_by_lag=...`(Task 16)
+- [ ] **V10 A/B**:同一 bag 切 `libgnss_global.so`,按 spec §12.4 比轨迹 RMSE(需 ref 轨迹或 V7 真值)
+

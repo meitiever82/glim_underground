@@ -9,6 +9,10 @@
     "config_preprocess": "config_preprocess.json",
     "config_odometry": "config_odometry_cpu.json",
     "config_sub_mapping": "config_sub_mapping_cpu.json",
-    "config_global_mapping": "config_global_mapping_cpu.json"
+    "config_global_mapping": "config_global_mapping_cpu.json",
+    // Extension-module configs resolved via GlobalConfigExt::get_config_path(): a key here
+    // takes priority over <config_ext>/config_ext.json, which this config set does not provide.
+    "config_rtk_global": "config_rtk_global.json",
+    "config_rtk_odometry": "config_rtk_odometry.json"
   }
 }
