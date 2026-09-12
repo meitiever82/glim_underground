@@ -22,14 +22,14 @@ rtk-monitor 作为独立 Python 应用已交付并验证（四路接入、rtkrcv
 
 即：**用 RTK 的话，上游只提供闭源模块**。踏歌矿区正是 RTK 场景。具体 naive 在：
 
-| 现有 `gnss_global` | 后果 |
-|---|---|
-| 收 `PoseWithCovarianceStamped` 却丢弃协方差，用固定 `prior_inf_scale` | 所有历元同权 |
-| 不区分固定/浮动/单点解 | 2 m 单点解与 1 cm 固定解同权 |
-| 无异常门限 | 差分中断期间照样加约束 |
-| 忽略 IMU-GNSS 杆臂 | 转弯时系统性偏移 |
-| 不用双天线航向 | 丢失强约束（本轮不做，见 §11） |
-| 无鲁棒核 | 单个错误固定解可拽歪整张图 |
+| 现有`gnss_global`                                                      | 后果                            |
+| ------------------------------------------------------------------------ | ------------------------------- |
+| 收`PoseWithCovarianceStamped` 却丢弃协方差，用固定 `prior_inf_scale` | 所有历元同权                    |
+| 不区分固定/浮动/单点解                                                   | 2 m 单点解与 1 cm 固定解同权    |
+| 无异常门限                                                               | 差分中断期间照样加约束          |
+| 忽略 IMU-GNSS 杆臂                                                       | 转弯时系统性偏移                |
+| 不用双天线航向                                                           | 丢失强约束（本轮不做，见 §11） |
+| 无鲁棒核                                                                 | 单个错误固定解可拽歪整张图      |
 
 ### 1.3 目标
 
@@ -75,6 +75,7 @@ rtk_odometry rtk_global      gnss_diag        （无 GLIM 时诊断/对比）
 ```
 
 **RTK 约束挂两处（odometry + global 都要，缺一不可）：**
+
 - `rtk_odometry`（`modules/odometry/`）挂 `OdometryEstimationCallbacks::on_smoother_update`，
   往 fixed-lag 图里的**每帧节点 `X(frame.id) = T_world_imu`** 加因子——RTK 观测本就对应某一时刻的
   帧状态，这是最细粒度、最正确的落点。
@@ -109,44 +110,44 @@ guik::LightViewer::instance()->register_ui_callback("imu_calibration_validation"
 
 **约束：rtk-monitor 现有功能不得有任何缺失。** 下表逐项定死归宿；"轮次"列见 §10。
 
-| # | 功能 | 归宿 | 轮次 |
-|---|---|---|---|
-| **A 接入与落盘** ||||
-| A1 | 差分 RTCM 接入 | `rtcm_bridge` 节点 → `/gnss/rtcm_corrections` | 2 |
-| A2 | 板卡原始观测接入 | `rtcm_bridge` 节点 → `/gnss/raw_obs` | 2 |
-| A3 | GPCHC 卫导解接入 | `gnss_CGI610`（已有） | — |
-| A4 | CAN 融合解接入 | `gnss_CGI610`（已有） | — |
-| A5 | 裸流落盘 | rosbag2 录制全部 topic | 2 |
-| A6 | 保留天数 / 磁盘水位清理 | 清理节点或 systemd timer（管 rosbag 与 .pos 两处） | 3 |
-| A7 | 本地转发（喂 rtkrcv） | 取消——`rtkrcv_node` 订阅 topic，无需转发 | 2 |
-| **B 解算** ||||
-| B1 | rtkrcv 进程管理（conf 生成、`-r 2`、崩溃重启） | `rtkrcv_node` | 2 |
-| B2 | rtkrcv llh 解流解析 | `gnss_core::parse_llh_solution` | 2 |
-| B3 | rtkrcv `$SAT` 状态流解析 | `gnss_core::StatEpochAccumulator` | 2 |
-| **C 诊断（九规则 + 事件机）** ||||
-| C1 | `corr_outage` 差分中断 / 龄期 | `gnss_core` 规则链；`rtk_global` 另有 `max_diff_age` 门限 | 3 |
-| C2 | `base_shift` 基站坐标平移 | `gnss_core` 规则链（订阅 `/gnss/rtcm_corrections` 解 1005） | 3 |
-| C3 | `abs_ref_shift` 控制点绝对基准校验 | `gnss_core` 规则链 | 3 |
-| C4 | `low_sats` 卫星数不足 | `gnss_core` 规则链；`rtk_global` 另有 `min_sats` 门限 | 3 |
-| C5 | `multipath` 残差异常星 | `gnss_core` 规则链（需 `$SAT` 流） | 3 |
-| C6 | `ambiguity` ratio 不足 | `gnss_core` 规则链 | 3 |
-| C7 | `cycle_slip` 周跳频繁 | `gnss_core` 规则链（需 `$SAT` 流） | 3 |
-| C8 | `device_divergence` 610 与独立解发散 | `gnss_core` 规则链（订阅两路 `RtkFix`） | 3 |
-| C9 | `no_data` / `no_solution` / `not_fixed` / `rtk_fixed` 状态 | `gnss_core` 规则链 | 3 |
-| C10 | 事件状态机（迟滞 open/close） | `gnss_core::EventMachine` | 3 |
-| **D 存储** ||||
-| D1 | 历元表（1 Hz 抽稀，四源） | `.pos` 文本文件，每源一个（§6.3）；SQLite 历元库取消 | 2 |
-| D2 | 事件表 | `events.log` 文本 | 3 |
-| D3 | 基站坐标史 | `.pos` 同目录的 `base.pos` | 3 |
-| D4 | DB 保留清理 | 见 A6 | 3 |
-| **E 界面（8 项）** ||||
-| E1-E8 | 地图/三轨迹开关/状态条/天空图/时间线/事件列表/回放条/瓦片 | `register_ui_callback` 挂进 GLIM viewer（机制见 §11） | 4 |
-| **F 回放与报告** ||||
-| F1 | 按时间轴重推 | rosbag2 原生回放 | 2 |
-| F2 | 报告（固定率/分小时/事件/基站稳定性/绝对基准/610 偏差/问题路段） | 离线工具，读 `.pos` + `events.log` | 4 |
-| F3 | 打印为 PDF | 同上 | 4 |
-| **G 对外** ||||
-| G1 | UDP JSON Lines | ROS2 topic 取代 | — |
+| #                                   | 功能                                                               | 归宿                                                            | 轮次 |
+| ----------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------- | ---- |
+| **A 接入与落盘**              |                                                                    |                                                                 |      |
+| A1                                  | 差分 RTCM 接入                                                     | `rtcm_bridge` 节点 → `/gnss/rtcm_corrections`              | 2    |
+| A2                                  | 板卡原始观测接入                                                   | `rtcm_bridge` 节点 → `/gnss/raw_obs`                       | 2    |
+| A3                                  | GPCHC 卫导解接入                                                   | `gnss_CGI610`（已有）                                         | —   |
+| A4                                  | CAN 融合解接入                                                     | `gnss_CGI610`（已有）                                         | —   |
+| A5                                  | 裸流落盘                                                           | rosbag2 录制全部 topic                                          | 2    |
+| A6                                  | 保留天数 / 磁盘水位清理                                            | 清理节点或 systemd timer（管 rosbag 与 .pos 两处）              | 3    |
+| A7                                  | 本地转发（喂 rtkrcv）                                              | 取消——`rtkrcv_node` 订阅 topic，无需转发                    | 2    |
+| **B 解算**                    |                                                                    |                                                                 |      |
+| B1                                  | rtkrcv 进程管理（conf 生成、`-r 2`、崩溃重启）                   | `rtkrcv_node`                                                 | 2    |
+| B2                                  | rtkrcv llh 解流解析                                                | `gnss_core::parse_llh_solution`                               | 2    |
+| B3                                  | rtkrcv`$SAT` 状态流解析                                          | `gnss_core::StatEpochAccumulator`                             | 2    |
+| **C 诊断（九规则 + 事件机）** |                                                                    |                                                                 |      |
+| C1                                  | `corr_outage` 差分中断 / 龄期                                    | `gnss_core` 规则链；`rtk_global` 另有 `max_diff_age` 门限 | 3    |
+| C2                                  | `base_shift` 基站坐标平移                                        | `gnss_core` 规则链（订阅 `/gnss/rtcm_corrections` 解 1005） | 3    |
+| C3                                  | `abs_ref_shift` 控制点绝对基准校验                               | `gnss_core` 规则链                                            | 3    |
+| C4                                  | `low_sats` 卫星数不足                                            | `gnss_core` 规则链；`rtk_global` 另有 `min_sats` 门限     | 3    |
+| C5                                  | `multipath` 残差异常星                                           | `gnss_core` 规则链（需 `$SAT` 流）                          | 3    |
+| C6                                  | `ambiguity` ratio 不足                                           | `gnss_core` 规则链                                            | 3    |
+| C7                                  | `cycle_slip` 周跳频繁                                            | `gnss_core` 规则链（需 `$SAT` 流）                          | 3    |
+| C8                                  | `device_divergence` 610 与独立解发散                             | `gnss_core` 规则链（订阅两路 `RtkFix`）                     | 3    |
+| C9                                  | `no_data` / `no_solution` / `not_fixed` / `rtk_fixed` 状态 | `gnss_core` 规则链                                            | 3    |
+| C10                                 | 事件状态机（迟滞 open/close）                                      | `gnss_core::EventMachine`                                     | 3    |
+| **D 存储**                    |                                                                    |                                                                 |      |
+| D1                                  | 历元表（1 Hz 抽稀，四源）                                          | `.pos` 文本文件，每源一个（§6.3）；SQLite 历元库取消         | 2    |
+| D2                                  | 事件表                                                             | `events.log` 文本                                             | 3    |
+| D3                                  | 基站坐标史                                                         | `.pos` 同目录的 `base.pos`                                  | 3    |
+| D4                                  | DB 保留清理                                                        | 见 A6                                                           | 3    |
+| **E 界面（8 项）**            |                                                                    |                                                                 |      |
+| E1-E8                               | 地图/三轨迹开关/状态条/天空图/时间线/事件列表/回放条/瓦片          | `register_ui_callback` 挂进 GLIM viewer（机制见 §11）        | 4    |
+| **F 回放与报告**              |                                                                    |                                                                 |      |
+| F1                                  | 按时间轴重推                                                       | rosbag2 原生回放                                                | 2    |
+| F2                                  | 报告（固定率/分小时/事件/基站稳定性/绝对基准/610 偏差/问题路段）   | 离线工具，读`.pos` + `events.log`                           | 4    |
+| F3                                  | 打印为 PDF                                                         | 同上                                                            | 4    |
+| **G 对外**                    |                                                                    |                                                                 |      |
+| G1                                  | UDP JSON Lines                                                     | ROS2 topic 取代                                                 | —   |
 
 ---
 
@@ -191,19 +192,20 @@ bool heading_valid
 
 **610 状态映射**（`gnss_CGI610` 内）：
 
-| `cgi610::SatStatus` | `quality` | `heading_valid` |
-|---|---|---|
-| `RTK_FIXED` (4) | `QUALITY_FIXED` | true |
-| `RTK_FIXED_NO_HEADING` (8) | `QUALITY_FIXED` | false |
-| `RTK_FLOAT` (5) | `QUALITY_FLOAT` | true |
-| `RTK_FLOAT_NO_HEADING` (9) | `QUALITY_FLOAT` | false |
-| `PSRDIFF` (2) / `PSRDIFF_NO_HEADING` (7) | `QUALITY_DGPS` | true / false |
-| `SINGLE` (1) / `SINGLE_NO_HEADING` (6) / `COMBINED_DR` (3) | `QUALITY_SINGLE` | true / false |
-| `NO_FIX` (0) | `QUALITY_NONE` | false |
+| `cgi610::SatStatus`                                            | `quality`        | `heading_valid` |
+| ---------------------------------------------------------------- | ------------------ | ----------------- |
+| `RTK_FIXED` (4)                                                | `QUALITY_FIXED`  | true              |
+| `RTK_FIXED_NO_HEADING` (8)                                     | `QUALITY_FIXED`  | false             |
+| `RTK_FLOAT` (5)                                                | `QUALITY_FLOAT`  | true              |
+| `RTK_FLOAT_NO_HEADING` (9)                                     | `QUALITY_FLOAT`  | false             |
+| `PSRDIFF` (2) / `PSRDIFF_NO_HEADING` (7)                     | `QUALITY_DGPS`   | true / false      |
+| `SINGLE` (1) / `SINGLE_NO_HEADING` (6) / `COMBINED_DR` (3) | `QUALITY_SINGLE` | true / false      |
+| `NO_FIX` (0)                                                   | `QUALITY_NONE`   | false             |
 
 字段来源均为 `cgi610::Cycle` 已解析的成员：`lat_deg`/`lon_deg`/`alt_m`、`pos_sigma_enu_m[3]`、`gps_age_s`、`sats_used`/`sats_main`/`sats_aux`、`heading_deg`、`att_sigma_deg[0]`。
 
 **[v2] 关于时间戳**：项目现场的传感器时间同步尚不可靠。`header.stamp` 若是主机接收时刻，串口/CAN 延迟几十 ms 在 5 m/s 车速下即 10–25 cm，与建图分层指标（0.25 m）同量级。因此：
+
 - `gnss_time` 取板卡自报的观测时刻（GPCHC/CAN 帧内的 GPS 周与周内秒 → UTC unix 秒，闰秒当前 18 s）；`Cycle` 若尚未解析该字段，驱动侧需补解析。
 - `header.stamp − gnss_time` 即接收延迟，可在线诊断（轮 3 规则链可加 `stamp_skew`）。
 - `COMBINED_DR` 状态下 `heading_valid = false`（航向来自惯导递推，不是双天线观测）。
@@ -234,12 +236,12 @@ uint8[] data
 
 **设计决定：`rtkrcv_node` 内不含任何 TCP 代码**，它是纯订阅者——喂一个 bag 就能完整测试解算逻辑，无需平台和板卡在线。这比"解算直连 TCP、另外转发一份"的双路径方案更干净（一套代码、一条维护路线）。
 
-`rtcm_bridge` 保持"笨"：TCP 客户端 → 收到多少发多少 → 断线重连。**不做任何解析**。RTCM 分帧与 1005 解析放在 `gnss_core`（`rtkrcv_node` 与 `gnss_diag` 共用，只写一遍）。
+`rtcm_bridge` 保持"笨"：**TCP 连接或监听**（`listen` 参数；平台主动推流时用监听模式）→ 收到多少发多少 → 断线重连/继续等待下一个连接。**不做任何解析**。RTCM 分帧与 1005 解析放在 `gnss_core`（`rtkrcv_node` 与 `gnss_diag` 共用，只写一遍）。
 
-| 话题 | 类型 | 内容 |
-|---|---|---|
+| 话题                       | 类型                    | 内容               |
+| -------------------------- | ----------------------- | ------------------ |
 | `/gnss/rtcm_corrections` | `gnss_msgs/RawStream` | 平台 5G 广播差分流 |
-| `/gnss/raw_obs` | `gnss_msgs/RawStream` | 板卡原始观测流 |
+| `/gnss/raw_obs`          | `gnss_msgs/RawStream` | 板卡原始观测流     |
 
 ### 5.2 落盘：rosbag2 存全量
 
@@ -312,15 +314,19 @@ gnss_core/
 
 生态内同一套公式已有三份实现：`gnss_CGI610` 的手写 `EnuConverter`、其 ROS1 遗留文件用的 `GeographicLib::LocalCartesian`、`gnss_global` 私有的 `geodetic.cpp`。**不再自写第四份。**
 
-采用 `GeographicLib::LocalCartesian`（系统已装 `libgeographiclib-dev 2.3`；CMake 经 `/usr/share/cmake/geographiclib/FindGeographicLib.cmake`，亦有 `geographiclib.pc`）。
+采用 `GeographicLib::LocalCartesian`。
+
+**[v3] 包名与发现方式（2026-09-12 在 x86_64 / Ubuntu 22.04 实测更正）**：v2 写的「系统已装 `libgeographiclib-dev 2.3`……亦有 `geographiclib.pc`」不成立——jammy 源里**没有** `libgeographiclib-dev` 这个包（`apt-cache policy` 无 candidate），该名字是 24.04 起才有的；jammy 对应的包是 **`libgeographic-dev` 1.52**，且它**不提供** `geographiclib.pc`（`pkg-config` 查不到）。它确实提供 `/usr/share/cmake/geographiclib/FindGeographicLib.cmake`，因此 `gnss_core/CMakeLists.txt` 里的 `list(APPEND CMAKE_MODULE_PATH "/usr/share/cmake/geographiclib")` 是正确写法。`gnss_core` 只用到 `LocalCartesian`，1.52 与 2.x 在该 API 上无差异。
+
+> `gnss_core/package.xml` 声明的 rosdep key 为 `geographiclib`，**至今仍未用 `rosdep resolve` 验证**（spec §13 的待确认项）；在 Orin 上须核对该 key 是否解析到当地发行版的正确包名。手工安装命令（jammy）：`sudo apt install libgeographic-dev`。
 
 **用局部 ENU 而非 UTM**：
 
-| | UTM | LocalCartesian |
-|---|---|---|
-| 分带 | 跨带需处理 | 无 |
-| 尺度畸变 | 有投影尺度因子 | 局部严格无畸变 |
-| 适用 | 大范围制图 | **几公里的矿区** |
+|          | UTM            | LocalCartesian         |
+| -------- | -------------- | ---------------------- |
+| 分带     | 跨带需处理     | 无                     |
+| 尺度畸变 | 有投影尺度因子 | 局部严格无畸变         |
+| 适用     | 大范围制图     | **几公里的矿区** |
 
 故 `gnss_global` 中的 `T_world_utm` 在本设计中对应 **`T_world_enu`**。ENU 原点由配置指定，默认取首个通过门限的 fix，**一经设定即固定，永不作为优化变量**（见 §7 甲方案）。
 
@@ -338,13 +344,13 @@ RTK 约束挂两处（缺一不可，§2 已述）。两模块共用 `gnss_core`
 
 ### 7.0 挂载点对照
 
-| | `rtk_odometry`（modules/odometry/） | `rtk_global`（modules/mapping/） |
-|---|---|---|
-| callback | `OdometryEstimationCallbacks::{on_new_frame, on_smoother_update}` | `GlobalMappingCallbacks::{on_insert_submap, on_smoother_update}` |
-| 约束 node | `X(frame.id)` = `T_world_imu`（该帧时刻的 IMU 位姿，本就是图变量） | `X(submap.id)` = submap 原点位姿 |
-| body_point | `lever_imu`（天线在 IMU 系） | `T_origin_frame(t) · lever_imu`（把杆臂搬到 submap 原点系，约束 t 时刻真实位置而非原点） |
-| 作用 | 局部轨迹全局参考（滑窗内每帧被 RTK 钉住） | 大范围/长程一致性，防 global 优化把整图拽离 ENU |
-| gauge | 自己的 `T_world_enu`（odometry world） | 自己的 `T_world_enu`（global map world；与 odometry world 可能不同，故各持一个） |
+|            | `rtk_odometry`（modules/odometry/）                                  | `rtk_global`（modules/mapping/）                                                          |
+| ---------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| callback   | `OdometryEstimationCallbacks::{on_new_frame, on_smoother_update}`    | `GlobalMappingCallbacks::{on_insert_submap, on_smoother_update}`                          |
+| 约束 node  | `X(frame.id)` = `T_world_imu`（该帧时刻的 IMU 位姿，本就是图变量） | `X(submap.id)` = submap 原点位姿                                                          |
+| body_point | `lever_imu`（天线在 IMU 系）                                         | `T_origin_frame(t) · lever_imu`（把杆臂搬到 submap 原点系，约束 t 时刻真实位置而非原点） |
+| 作用       | 局部轨迹全局参考（滑窗内每帧被 RTK 钉住）                              | 大范围/长程一致性，防 global 优化把整图拽离 ENU                                             |
+| gauge      | 自己的`T_world_enu`（odometry world）                                | 自己的`T_world_enu`（global map world；与 odometry world 可能不同，故各持一个）           |
 
 ### 7.1 主流程（两模块同构，只差挂载点）
 
@@ -393,11 +399,11 @@ GLIM 回调（新帧 / 新 submap）─→ [2] 目标 node 入队（带 id 与�
 
 **三道门限**（任一不过则该历元不加因子）：
 
-| 门限 | 默认 | 理由 |
-|---|---|---|
-| `quality < min_quality` | 拒绝 DGPS / SINGLE | 米级先验在矿区会与 LiDAR 打架 |
-| `diff_age > max_diff_age` | 15 s | **差分中断由此兜住**，无需额外诊断通道 |
-| `sats_used < min_sats` | 6 | 与 rtk-monitor 同阈值 |
+| 门限                        | 默认               | 理由                                         |
+| --------------------------- | ------------------ | -------------------------------------------- |
+| `quality < min_quality`   | 拒绝 DGPS / SINGLE | 米级先验在矿区会与 LiDAR 打架                |
+| `diff_age > max_diff_age` | 15 s               | **差分中断由此兜住**，无需额外诊断通道 |
+| `sats_used < min_sats`    | 6                  | 与 rtk-monitor 同阈值                        |
 
 **σ 构建**：
 
@@ -526,7 +532,11 @@ glim_ext/modules/mapping/rtk_global/
 
 **[v2] 构建形态**：`glim_ext` 是**一个** ament 包，各模块经顶层 `CMakeLists.txt` 的 `option(ENABLE_xxx)` + `add_subdirectory(modules/...)` 编入，产物统一装到 `install/glim_ext/lib/`。新模块因此不是独立 colcon 包，而是：`glim_ext/CMakeLists.txt` 加 `option(ENABLE_RTK_GLOBAL)` 与 `add_subdirectory`，`glim_ext/package.xml` 加 `<depend>gnss_core</depend>` `<depend>gnss_msgs</depend>`（模块 CMake 的 `ament_auto_find_build_dependencies()` 从这里取依赖）。构建命令是 `colcon build --packages-select glim_ext`。
 
-实际布局（2026-09-07 核实）：`gnss_msgs` 与 `gnss_CGI610` 正本在 `finder_ros/drivers/`（`driver_ws/src` 下为符号链接）；`gnss_core` 位于 `glim_ext/gnss_core/`，由 colcon 在 `glim_ws` 内识别为独立包 `gnss_core`（仍满足 §2.1 "单独成包、不依赖 glim_ext"——它只是放在同一仓库目录下）。构建 `glim_ws` 前须 `source ~/driver_ws/install/setup.bash` 以获得 `gnss_msgs`。
+实际布局（2026-09-07 核实）：`gnss_msgs` 与 `gnss_CGI610` 正本在 `finder_ros/drivers/`（`driver_ws/src` 下为符号链接）；`gnss_core` 的源码位于 `glim_ext/gnss_core/`（随 `glim_ext` 仓库版本管理），仍满足 §2.1 "单独成包、不依赖 glim_ext"——它只是放在同一仓库目录下。
+
+> **[v3] 更正（2026-09-12 实测）**：v2 称它"由 colcon 在 `glim_ws` 内识别为独立包"是**错的**。colcon 一旦把某目录识别为包就**不再向下递归**，而 `src/glim_ext` 本身是包，因此 `src/glim_ext/gnss_core` 永远不会被发现——`colcon list` 里没有 `gnss_core`，`colcon build --packages-select gnss_core` 报 `ignoring unknown package`。而 `glim_ext/package.xml` 又声明了 `<depend>gnss_core</depend>`，等于依赖一个构建系统看不见的包。
+>
+> 解决办法：在 `glim_ws/src/` 下建一个指向它的符号链接（与 `driver_ws/gnss_msgs` 同一手法），使 colcon 能发现它：`ln -s glim_ext/gnss_core glim_ws/src/gnss_core`。由于 `glim_ws` 根目录不是 git 仓库，该链接无法被版本管理，故由 `glim_ext/setup_workspace.sh` 幂等创建，**新机器/新克隆构建前必须先跑一次**。构建 `glim_ws` 前须 `source ~/driver_ws/install/setup.bash` 以获得 `gnss_msgs`。
 
 ---
 
@@ -534,21 +544,21 @@ glim_ext/modules/mapping/rtk_global/
 
 承载 C1–C10 全部九条规则与事件状态机。规则逻辑在 `gnss_core::rules` / `EventMachine`，两个壳：
 
-| 壳 | 用途 | 输入 |
-|---|---|---|
-| `glim_ext/modules/mapping/gnss_diag`（`libgnss_diag.so`） | GLIM 运行时，诊断集成在 GLIM 界面（`register_ui_callback`，同 `imu_validator`） | 订阅 `RtkFix` × N、`RawStream` |
-| `gnss_diag_node`（独立 ROS2 节点） | 无 LiDAR / 不跑 GLIM 时诊断与轨迹对比 | 同上 |
+| 壳                                                            | 用途                                                                                | 输入                               |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------- |
+| `glim_ext/modules/mapping/gnss_diag`（`libgnss_diag.so`） | GLIM 运行时，诊断集成在 GLIM 界面（`register_ui_callback`，同 `imu_validator`） | 订阅`RtkFix` × N、`RawStream` |
+| `gnss_diag_node`（独立 ROS2 节点）                          | 无 LiDAR / 不跑 GLIM 时诊断与轨迹对比                                               | 同上                               |
 
 九条规则的输入来源：
 
-| 规则 | 所需输入 |
-|---|---|
-| `corr_outage` | `RtkFix.diff_age` 或 `/gnss/rtcm_corrections` 到达时刻 |
-| `base_shift` | `/gnss/rtcm_corrections` → RTCM 1005/1006 |
-| `abs_ref_shift` | `RtkFix` + 配置的控制点坐标 |
-| `low_sats` / `ambiguity` / `not_fixed` | `RtkFix` |
-| `multipath` / `cycle_slip` | rtkrcv `$SAT` 流（由 `rtkrcv_node` 发布） |
-| `device_divergence` | 两路 `RtkFix`（610 与 rtkrcv） |
+| 规则                                         | 所需输入                                                   |
+| -------------------------------------------- | ---------------------------------------------------------- |
+| `corr_outage`                              | `RtkFix.diff_age` 或 `/gnss/rtcm_corrections` 到达时刻 |
+| `base_shift`                               | `/gnss/rtcm_corrections` → RTCM 1005/1006               |
+| `abs_ref_shift`                            | `RtkFix` + 配置的控制点坐标                              |
+| `low_sats` / `ambiguity` / `not_fixed` | `RtkFix`                                                 |
+| `multipath` / `cycle_slip`               | rtkrcv`$SAT` 流（由 `rtkrcv_node` 发布）               |
+| `device_divergence`                        | 两路`RtkFix`（610 与 rtkrcv）                            |
 
 ---
 
@@ -561,11 +571,11 @@ glim_ext/modules/mapping/rtk_global/
 
 ### 9.1 可对比的轨迹（有几条比几条）
 
-| # | 轨迹 | 来源 |
-|---|---|---|
-| 1 | 610 组合导航融合解 | `can.pos` |
-| 2 | 610 卫导解 | `gpchc.pos` |
-| 3 | rtkrcv 独立解算 | `rtkrcv.pos` |
+| # | 轨迹                                       | 来源                             |
+| - | ------------------------------------------ | -------------------------------- |
+| 1 | 610 组合导航融合解                         | `can.pos`                      |
+| 2 | 610 卫导解                                 | `gpchc.pos`                    |
+| 3 | rtkrcv 独立解算                            | `rtkrcv.pos`                   |
 | 4 | 后处理基准（可选，精度最高，可作参考真值） | `ref.pos`（`rnx2rtkp` 输出） |
 
 四者同为 `.pos` 格式，**RTKPLOT 可直接叠加显示**，可视化对比零成本。
@@ -601,13 +611,13 @@ glim_ext/modules/mapping/rtk_global/
 
 ## 10. 实施轮次
 
-| 轮 | 内容 | 依赖 |
-|---|---|---|
-| **1**（本轮实施，[v2]） | `gnss_msgs`（RtkFix〔含 gnss_time〕/ RawStream）、`gnss_core` 骨架与约束单元（NoisePolicy / FixBuffer / FrameAligner〔冻结〕/ AntennaPriorFactor〔body_point〕/ effective_stamp）、**`rtk_global`（submap 级）**、驱动增发 `~/rtk_fix`、`.pos` **读取**（GPST/UTC）+ 轨迹对比与系数标定（§9.2）、**合成注入测试（§12.3）**、**杆臂/时间偏移估计工具（§9.3）** | — |
-| **1.5** [v2] | `rtk_odometry`（帧级壳，复用 core）——代码已于 2026-09-08 写好（`gnss_core::AnchorPipeline` + 薄壳），**启用**须待 `rtk_global` 实车验证通过 | 轮 1 |
-| **2** | `rtcm_bridge`、`rtkrcv_node`（B1–B3）、`.pos` **写出**（D1）、rosbag2 录制回放接入（A5/F1） | 轮 1 的消息与 core |
-| **3** | `gnss_core` 九条规则 + 事件机（C1–C10）、`gnss_diag` 双壳、`events.log`/`base.pos`（D2/D3）、清理逻辑（A6/D4） | 轮 2 的 `$SAT` 与 RTCM 流 |
-| **4** | 界面迁移（E1–E8，`register_ui_callback`）、报告离线工具（F2/F3） | 轮 3 的诊断输出 |
+| 轮                            | 内容                                                                                                                                                                                                                                                                                                                                                                                               | 依赖                       |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| **1**（本轮实施，[v2]） | `gnss_msgs`（RtkFix〔含 gnss_time〕/ RawStream）、`gnss_core` 骨架与约束单元（NoisePolicy / FixBuffer / FrameAligner〔冻结〕/ AntennaPriorFactor〔body_point〕/ effective_stamp）、**`rtk_global`（submap 级）**、驱动增发 `~/rtk_fix`、`.pos` **读取**（GPST/UTC）+ 轨迹对比与系数标定（§9.2）、**合成注入测试（§12.3）**、**杆臂/时间偏移估计工具（§9.3）** | —                         |
+| **1.5** [v2]            | `rtk_odometry`（帧级壳，复用 core）——代码已于 2026-09-08 写好（`gnss_core::AnchorPipeline` + 薄壳），**启用**须待 `rtk_global` 实车验证通过                                                                                                                                                                                                                                          | 轮 1                       |
+| **2**                   | `rtcm_bridge`、`rtkrcv_node`（B1–B3）、`.pos` **写出**（D1）、rosbag2 录制回放接入（A5/F1）                                                                                                                                                                                                                                                                                           | 轮 1 的消息与 core         |
+| **3**                   | `gnss_core` 九条规则 + 事件机（C1–C10）、`gnss_diag` 双壳、`events.log`/`base.pos`（D2/D3）、清理逻辑（A6/D4）                                                                                                                                                                                                                                                                            | 轮 2 的`$SAT` 与 RTCM 流 |
+| **4**                   | 界面迁移（E1–E8，`register_ui_callback`）、报告离线工具（F2/F3）                                                                                                                                                                                                                                                                                                                                | 轮 3 的诊断输出            |
 
 每轮结束时，上表 §3 中该轮次的功能项须全部可用。
 
@@ -627,15 +637,15 @@ glim_ext/modules/mapping/rtk_global/
 
 `gnss_core` 全部单元可独立测试：
 
-| 单元 | 关键用例 |
-|---|---|
-| `RtkNoisePolicy` | 各质量档缩放正确；三道门限各自触发拒绝；`sigma_floor` 生效（板卡报 1 mm → 抬至 2 cm）；`vertical_scale` 仅作用于 Z；阈值边界行为 |
-| `RtkFixBuffer` | 线性插值正确；**质量取两端较差者**（FIXED 与 SINGLE 之间插出 SINGLE）；时间戳越界返回空；超期样本清理 |
-| `FrameAligner` | 构造已知 `T_world_enu` → 合成 (submap, ENU) 对 → 验证 SVD 可恢复；基线不足不初始化；**初始化后再 add 不改变 T（冻结）[v2]**；共线退化行为 |
-| `effective_stamp` [v2] | `gnss_time` 优先、为 0 回退 `header`、`time_offset` 叠加 |
-| `pos_io` [v2] | GPST 头 → 减闰秒；UTC 头 → 原样 |
-| `AntennaPriorFactor` | **Jacobian 数值验证**（`gtsam::numericalDerivative11` 对比解析式）；杆臂为零时与 `PoseTranslationPrior` 结果一致 |
-| 规则链 / 事件机 | 沿用 rtk-monitor 既有用例（构造指标序列断言结论） |
+| 单元                     | 关键用例                                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RtkNoisePolicy`       | 各质量档缩放正确；三道门限各自触发拒绝；`sigma_floor` 生效（板卡报 1 mm → 抬至 2 cm）；`vertical_scale` 仅作用于 Z；阈值边界行为              |
+| `RtkFixBuffer`         | 线性插值正确；**质量取两端较差者**（FIXED 与 SINGLE 之间插出 SINGLE）；时间戳越界返回空；超期样本清理                                        |
+| `FrameAligner`         | 构造已知`T_world_enu` → 合成 (submap, ENU) 对 → 验证 SVD 可恢复；基线不足不初始化；**初始化后再 add 不改变 T（冻结）[v2]**；共线退化行为 |
+| `effective_stamp` [v2] | `gnss_time` 优先、为 0 回退 `header`、`time_offset` 叠加                                                                                     |
+| `pos_io` [v2]          | GPST 头 → 减闰秒；UTC 头 → 原样                                                                                                                  |
+| `AntennaPriorFactor`   | **Jacobian 数值验证**（`gtsam::numericalDerivative11` 对比解析式）；杆臂为零时与 `PoseTranslationPrior` 结果一致                         |
+| 规则链 / 事件机          | 沿用 rtk-monitor 既有用例（构造指标序列断言结论）                                                                                                  |
 
 ### 12.2 模块加载与订阅
 
@@ -645,12 +655,12 @@ glim_ext/modules/mapping/rtk_global/
 
 取一段既有纯 LiDAR 包，先让 GLIM 无 GNSS 跑出轨迹作基准，再据该轨迹**合成"理想 RTK 观测"**（加已知噪声与质量标签），然后注入故障：
 
-| 注入 | 期望行为 | 验证了什么 |
-|---|---|---|
-| 5% 错误固定历元（σ 仅 cm，位置偏 1 m） | 开鲁棒核：轨迹 RMSE 基本不变<br>关鲁棒核：明显恶化 | 鲁棒核确实兜底 |
-| 一段 `diff_age` 持续增长 | 该段不产生因子 | 差分中断门限有效 |
-| 一段全浮动解 | 因子仍加但权重降 5 倍 | 质量分档有效 |
-| 非零杆臂 + 车辆转弯 | 不设杆臂时先验有系统性偏移，设置后消失 | 杆臂建模有效 |
+| 注入                                    | 期望行为                                       | 验证了什么       |
+| --------------------------------------- | ---------------------------------------------- | ---------------- |
+| 5% 错误固定历元（σ 仅 cm，位置偏 1 m） | 开鲁棒核：轨迹 RMSE 基本不变关鲁棒核：明显恶化 | 鲁棒核确实兜底   |
+| 一段`diff_age` 持续增长               | 该段不产生因子                                 | 差分中断门限有效 |
+| 一段全浮动解                            | 因子仍加但权重降 5 倍                          | 质量分档有效     |
+| 非零杆臂 + 车辆转弯                     | 不设杆臂时先验有系统性偏移，设置后消失         | 杆臂建模有效     |
 
 **该层的价值**：验证的恰是 `gnss_global` 做不到的部分，且结论不依赖真实 RTK 数据——注入的是已知真值。
 
@@ -666,15 +676,15 @@ glim_ext/modules/mapping/rtk_global/
 
 ## 13. 风险与待确认项
 
-| 项 | 影响 | 处理 |
-|---|---|---|
-| `quality_sigma_scale` 默认值为估计值 | 直接决定定权效果 | §9 实测标定后修订；轮 1 必做 |
-| IMU-GNSS 杆臂未标定 [v2] | 转弯时米级残差；配 cm 级 `sigma_floor` 时 Huber 会把转弯段固定解当外点 | 未标定期间 `sigma_floor`=1.0 m；§9.3 工具用建图数据估计杆臂后填入并降 floor |
-| RTK 与 LiDAR 时间戳不同源 [v2] | 几十 ms 延迟 = 10–25 cm 位置误差，与分层指标同量级 | `RtkFix.gnss_time` + `stamp_source`/`time_offset`；§9.3 工具估计 `time_offset` |
-| `.pos` 时间系统 GPST≠UTC [v2] | 轨迹配对全部落空 | `pos_io` 识别头部时间系统并统一到 UTC |
-| 云端/CI 的 GTSAM 为 4.2，Orin 为 4.3 [v2] | 接口差异 | `gnss_core` 只用两版共有接口（`NoiseModelFactorN`、`OptionalMatrixType`），CMake 不锁 4.3 |
-| GeographicLib 的 rosdep key 未验证 | 构建依赖声明 | 轮 1 首个任务确认（预期为 `geographiclib`） |
-| `gnss_diag` 在 `glim_ext` 中的目录归类 | 仅影响路径 | 暂置于 `modules/mapping/`（GNSS 约束属 mapping 侧） |
-| rosbag2 无保留天数/水位清理 | 长期无人值守磁盘占满 | 轮 3 的清理逻辑（A6） |
-| 平台差分协议、板卡原始格式未确认（P0） | `rtcm_bridge` 与 `rtkrcv_node` 的输入解析 | 沿用前置文档的现场核对清单；轮 2 前必须定死 |
-| 踏歌现场无同步 LiDAR+RTK 录包 | 阻塞 §12.4 | §9 与 §12.3 使实车前的验证不被阻塞 |
+| 项                                         | 影响                                                                    | 处理                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------ | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `quality_sigma_scale` 默认值为估计值     | 直接决定定权效果                                                        | §9 实测标定后修订；轮 1 必做                                                                                                                                                                                                                                                                 |
+| IMU-GNSS 杆臂未标定 [v2]                   | 转弯时米级残差；配 cm 级`sigma_floor` 时 Huber 会把转弯段固定解当外点 | 未标定期间`sigma_floor`=1.0 m；§9.3 工具用建图数据估计杆臂后填入并降 floor                                                                                                                                                                                                                 |
+| RTK 与 LiDAR 时间戳不同源 [v2]             | 几十 ms 延迟 = 10–25 cm 位置误差，与分层指标同量级                     | `RtkFix.gnss_time` + `stamp_source`/`time_offset`；§9.3 工具估计 `time_offset`                                                                                                                                                                                                       |
+| `.pos` 时间系统 GPST≠UTC [v2]           | 轨迹配对全部落空                                                        | `pos_io` 识别头部时间系统并统一到 UTC                                                                                                                                                                                                                                                       |
+| 云端/CI 的 GTSAM 为 4.2，Orin 为 4.3 [v2]  | 接口差异                                                                | `gnss_core` 只用两版共有接口（`NoiseModelFactorN`、`OptionalMatrixType`），CMake 不锁 4.3                                                                                                                                                                                               |
+| GeographicLib 包名与 rosdep key [v3]       | 构建依赖声明；jammy 上包名与 v2 所写不同                                | **部分关闭**：jammy 的包是 `libgeographic-dev` 1.52（非 `libgeographiclib-dev`），2026-09-12 在 x86_64 实测装上后 `gnss_core` 构建通过，见 §6.1；`package.xml` 的 rosdep key `geographiclib` **仍未用 `rosdep resolve` 验证**（本机 rosdep 未初始化），Orin 上须补验 |
+| `gnss_diag` 在 `glim_ext` 中的目录归类 | 仅影响路径                                                              | 暂置于`modules/mapping/`（GNSS 约束属 mapping 侧）                                                                                                                                                                                                                                          |
+| rosbag2 无保留天数/水位清理                | 长期无人值守磁盘占满                                                    | 轮 3 的清理逻辑（A6）                                                                                                                                                                                                                                                                         |
+| 平台差分协议、板卡原始格式未确认（P0）     | `rtcm_bridge` 与 `rtkrcv_node` 的输入解析                           | 沿用前置文档的现场核对清单；轮 2 前必须定死。协议已确认为裸 TCP（参考实现 rtk-monitor 全仓无 NTRIP）；待确认的是端点、方向与两个 `inpstr*-format` 的取值，均为配置项，不影响代码结构。                                                                                                                                                                                                                                                   |
+| 踏歌现场无同步 LiDAR+RTK 录包              | 阻塞 §12.4                                                             | §9 与 §12.3 使实车前的验证不被阻塞                                                                                                                                                                                                                                                          |

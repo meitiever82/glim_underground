@@ -1971,9 +1971,13 @@ Task 9 + Task 13 → Task 9 Step 6 与 Task 13 Step 6 的 bag 验证(需 Orin)
 
 代码层面 Task 1–16 与评审遗留四项均已落盘(gnss_core 云端 11 可执行 83 用例 + Python 10 用例全绿);以下每一步在 Orin 上完成即可勾掉。
 
-- [ ] **V1 driver_ws**:`cd ~/driver_ws && colcon build --packages-select gnss_msgs gnss_chcnav --cmake-args -DBUILD_TESTING=ON && colcon test --packages-select gnss_chcnav --event-handlers console_direct+`;`ros2 interface show gnss_msgs/msg/RtkFix` 含 `gnss_time`;`test_rtk_fix_mapping` 11 用例通过(Task 1/8)
-- [ ] **V2 gnss_core(GTSAM 4.3)**:`source ~/driver_ws/install/setup.bash && cd ~/glim_ws && colcon build --packages-select gnss_core --cmake-args -DBUILD_TESTING=ON && colcon test --packages-select gnss_core --event-handlers console_direct+`;11 可执行 83 用例;关注 `antenna_prior_factor.hpp` 的 4.3 分支(Task 7)
-- [ ] **V3 glim_ext**:`colcon build --packages-select glim_ext --event-handlers console_direct+`;生成 `install/glim_ext/lib/{librtk_global,librtk_odometry}.so`;若 `colcon list` 出现独立包 `rtk_global`/`rtk_odometry`,在其目录放 `COLCON_IGNORE`(Task 9/16)
+- [x] **V1 driver_ws**:`cd ~/driver_ws && colcon build --packages-select gnss_msgs gnss_chcnav --cmake-args -DBUILD_TESTING=ON && colcon test --packages-select gnss_chcnav --event-handlers console_direct+`;`ros2 interface show gnss_msgs/msg/RtkFix` 含 `gnss_time`;`test_rtk_fix_mapping` 11 用例通过(Task 1/8)
+- [x] **V2 gnss_core(GTSAM 4.3)**:`source ~/driver_ws/install/setup.bash && cd ~/glim_ws && colcon build --packages-select gnss_core --cmake-args -DBUILD_TESTING=ON && colcon test --packages-select gnss_core --event-handlers console_direct+`;11 可执行 83 用例;关注 `antenna_prior_factor.hpp` 的 4.3 分支(Task 7)
+- [x] **V3 glim_ext**:`colcon build --packages-select glim_ext --event-handlers console_direct+`;生成 `install/glim_ext/lib/{librtk_global,librtk_odometry}.so`;若 `colcon list` 出现独立包 `rtk_global`/`rtk_odometry`,在其目录放 `COLCON_IGNORE`(Task 9/16)
+
+  > **2026-09-12 在 x86_64 开发机（非 Orin）完成 V1–V3**，系统 GTSAM 4.3.0（`/usr/local`）、GeographicLib `libgeographic-dev` 1.52。结果：V1 `test_rtk_fix_mapping` 11/11；V2 11 可执行 **83** gtest 用例 + `tests/` 下 10 条 Python 用例全绿；V3 产出 `librtk_global.so` / `librtk_odometry.so`，无未解析符号，均导出 `create_extension_module`，链接到 `/usr/local/lib/libgtsam.so.4` 与 `/lib/x86_64-linux-gnu/libGeographic.so.19`。
+  > 过程中修掉三处：① `colcon list` 看不到 `gnss_core`（spec §7.6 的断言是错的），改由 `glim_ext/setup_workspace.sh` 幂等建 `src/gnss_core` 符号链接，**新机器构建前必须先跑**；② spec §6.1 的 GeographicLib 包名更正；③ `tests/` 下 10 条 Python 用例原先不被 `colcon test` 收集，已在 `gnss_core/CMakeLists.txt` 注册（用 `unittest` 而非 pytest，规避 Humble 的 `launch_testing` 插件与 pytest≥8 不兼容）。
+  > V5 的本机前提也补上了：`install/glim` 因 Iridescence 在构建中途从 1.0.1 升到 1.0.3 而处于半新半旧状态（`libinteractive_viewer.so` 引用旧的三参 `glk::ThinLines`），重建 `glim` 后 `glim_ros` 构建通过，`glim_rosbag` 等 5 个可执行已就位。**V1–V3 仍需在 Orin/aarch64 上各复核一次**。
 - [ ] **V4 有 CAN 的 bag**:回放后 `ros2 topic echo /gnss_cgi610/rtk_fix`,`quality` 随状态变化;`timestamp_source=arrival` 时记录 `header.stamp − gnss_time`(Task 8 Step 6)
 - [ ] **V5 rtk_global bag 验证**:`ros2 run glim_ros glim_rosbag <bag> 2>&1 | tee /tmp/rtk_global.log && bash src/glim_ext/modules/mapping/rtk_global/tools/check_rtk_global_log.sh /tmp/rtk_global.log`(Task 9 Step 6)。无实车 RtkFix bag 时先做 V7 合成
 - [ ] **V6 实车数据导出**:`export_bag_to_pos.py --db <rtk-monitor.db> --src can/gpchc/rtkrcv`,核对 610 状态映射与 `t` 的时间系统(Task 12 Step 4);`calibrate_sigma_scale ref.pos test.pos` 出分档表
