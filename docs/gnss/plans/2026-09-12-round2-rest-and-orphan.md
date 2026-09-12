@@ -647,6 +647,25 @@ launch 加 `enable_pos_writer` 开关(默认 true);yaml 加 `pos_writer` 段与�
 README 增加一节:`.pos` 的目录布局与轮转、录制脚本用法、以及 **rosbag2 无保留策略**的缺口
 (属轮 3 的 A6)。
 
+**同时修掉 README 的构建说明(2026-09-12 更新)**:构建章节只写了
+`source install/setup.bash`,没说清楚 `gnss_msgs` 从哪来。现状已变更——`gnss_msgs` 现在由
+`setup_workspace.sh` 链接进 `glim_ws/src/`,**构建 glim_ws 不再需要 source driver_ws**。
+README 要写明:
+
+1. 新机器 / 新克隆在 `colcon build` 之前必须先跑一次 `bash src/glim_ext/setup_workspace.sh`
+   (它建 `gnss_core` / `gnss_bringup` / `gnss_msgs` 三个符号链接);
+2. **`gnss_msgs` 因此会被编两遍**——`driver_ws` 为了 `gnss_chcnav` 也在编它。
+   改过 `.msg` 之后**两个 workspace 都要重建**,否则一边用新结构发、另一边用旧结构订,
+   ROS2 Humble 下的表现是 **DDS 静默不匹配**:不报错、不警告,话题就是收不到。
+   轮 1 往 `RtkFix` 里加 `gnss_time` 时正好是这个场景。这条要写得显眼,它是个静默陷阱。
+
+顺带在 README 里写明**两路裸流共用 `RawStream` 类型但各有独立话题**:
+`/gnss/rtcm_corrections`(平台差分)与 `/gnss/raw_obs`(板卡原始观测)。区分它们的是话题不是类型,
+因为桥不解析任何东西;格式差异由 `rtkrcv_node` 的 `corr_format`/`obs_format` 两个参数承担。
+并写明**只有原始观测、没有差分时**的用法:`streams: ["raw_obs"]` 只起那一路(已实测),
+但 `rtkrcv` 只能出单点解(Q=5 → `QUALITY_SINGLE`),会被约束模块 `min_quality` 默认值全部拒掉——
+链路通、不产约束,这是设计意图而非故障。这两点都实际被问到过,说明现有文档没讲清楚。
+
 - [ ] **Step 3: 全量验证 + Commit**
 
 ```bash
