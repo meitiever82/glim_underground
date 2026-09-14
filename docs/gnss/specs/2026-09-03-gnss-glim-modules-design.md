@@ -544,6 +544,11 @@ glim_ext/modules/mapping/rtk_global/
 
 承载 C1–C10 全部九条规则与事件状态机。规则逻辑在 `gnss_core::rules` / `EventMachine`，两个壳：
 
+> **[v4] 2026-09-15 维护者确认的实现决定**（详见 `docs/gnss/plans/2026-09-15-round3a-diagnosis-core.md`「设计决定」）：
+> - 规则链返回**全部命中**的结论，状态取优先级最高的一条；事件**按规则码独立**开关（rtk-monitor 设计文档的要求，其代码只记第一条）。
+> - `device_divergence` 的 σ 用最近 10 分钟未超限偏差的经验 RMS（设 5 cm 下限），样本不足时回退到 rtkrcv 自报 σ。
+> - 清理做成独立 ROS 节点，每小时一次；`glim_ext` 模块壳随界面移到轮 4。
+
 | 壳                                                            | 用途                                                                                | 输入                               |
 | ------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------- |
 | `glim_ext/modules/mapping/gnss_diag`（`libgnss_diag.so`） | GLIM 运行时，诊断集成在 GLIM 界面（`register_ui_callback`，同 `imu_validator`） | 订阅`RtkFix` × N、`RawStream` |
@@ -616,8 +621,8 @@ glim_ext/modules/mapping/rtk_global/
 | **1**（本轮实施，[v2]） | `gnss_msgs`（RtkFix〔含 gnss_time〕/ RawStream）、`gnss_core` 骨架与约束单元（NoisePolicy / FixBuffer / FrameAligner〔冻结〕/ AntennaPriorFactor〔body_point〕/ effective_stamp）、**`rtk_global`（submap 级）**、驱动增发 `~/rtk_fix`、`.pos` **读取**（GPST/UTC）+ 轨迹对比与系数标定（§9.2）、**合成注入测试（§12.3）**、**杆臂/时间偏移估计工具（§9.3）** | —                         |
 | **1.5** [v2]            | `rtk_odometry`（帧级壳，复用 core）——代码已于 2026-09-08 写好（`gnss_core::AnchorPipeline` + 薄壳），**启用**须待 `rtk_global` 实车验证通过                                                                                                                                                                                                                                          | 轮 1                       |
 | **2**                   | `rtcm_bridge`、`rtkrcv_node`（B1–B3）、`.pos` **写出**（D1）、rosbag2 录制回放接入（A5/F1）                                                                                                                                                                                                                                                                                           | 轮 1 的消息与 core         |
-| **3**                   | `gnss_core` 九条规则 + 事件机（C1–C10）、`gnss_diag` 双壳、`events.log`/`base.pos`（D2/D3）、清理逻辑（A6/D4）                                                                                                                                                                                                                                                                            | 轮 2 的`$SAT` 与 RTCM 流 |
-| **4**                   | 界面迁移（E1–E8，`register_ui_callback`）、报告离线工具（F2/F3）                                                                                                                                                                                                                                                                                                                                | 轮 3 的诊断输出            |
+| **3**                   | [v4] 拆两份：**3a** `gnss_core` 九条规则 + 事件机（C1–C10）、`events.log`/`base.pos`（D2/D3）、清理判定（A6/D4）、`DiagnosisEngine`；**3b** `gnss_diag_node`、清理节点、`rtkrcv_node` 健康信号。`glim_ext` 的 `gnss_diag` 模块壳移到轮 4                                                                                                                                                                                                                                                                            | 轮 2 的`$SAT` 与 RTCM 流 |
+| **4**                   | 界面迁移（E1–E8，`register_ui_callback`，含 [v4] 从轮 3 移来的 `gnss_diag` 模块壳）、报告离线工具（F2/F3）                                                                                                                                                                                                                                                                                                                                | 轮 3 的诊断输出            |
 
 每轮结束时，上表 §3 中该轮次的功能项须全部可用。
 
