@@ -106,6 +106,7 @@ add_library(glim SHARED
   src/glim/mapping/global_mapping_pose_graph.cpp
   # GPU-related
   ${GPU_SRCS}
+  src/glim/viewer/editor/trajectory_qc.cpp
 )
 target_include_directories(glim PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -176,6 +177,7 @@ if(BUILD_WITH_VIEWER)
     src/glim/viewer/interactive/manual_loop_close_modal.cpp
     src/glim/viewer/interactive/bundle_adjustment_modal.cpp
     src/glim/viewer/offline_viewer.cpp
+    src/glim/viewer/editor/trajectory_qc_panel.cpp
   )
   target_link_libraries(interactive_viewer
     glim

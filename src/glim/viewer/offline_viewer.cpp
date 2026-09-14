@@ -5,6 +5,7 @@
 #include <gtsam_points/optimizers/linearization_hook.hpp>
 #include <gtsam_points/cuda/nonlinear_factor_set_gpu_create.hpp>
 #include <glim/util/config.hpp>
+#include <glim/viewer/editor/trajectory_qc_panel.hpp>
 
 #include <spdlog/spdlog.h>
 #include <portable-file-dialogs.h>
@@ -24,6 +25,9 @@ void OfflineViewer::setup_ui() {
   viewer->register_ui_callback("main_menu", [this] { main_menu(); });
 
   progress_modal.reset(new guik::ProgressModal("offline_viewer_progress"));
+
+  trajectory_qc.reset(new TrajectoryQCPanel(logger));
+  viewer->register_ui_callback("trajectory_qc", [this] { trajectory_qc->draw_ui(); });
 
 #ifdef GTSAM_POINTS_USE_CUDA
   gtsam_points::LinearizationHook::register_hook([] { return gtsam_points::create_nonlinear_factor_set_gpu(); });
@@ -49,6 +53,9 @@ void OfflineViewer::main_menu() {
       }
 
       if (ImGui::MenuItem("Close Map")) {
+        if (trajectory_qc) {
+          trajectory_qc->clear();
+        }
         if (pfd::message("Warning", "Close the map?").result() == pfd::button::ok) {
           start_close_map = true;
         }
@@ -75,6 +82,18 @@ void OfflineViewer::main_menu() {
       ImGui::EndMenu();
     }
 
+    if (ImGui::BeginMenu("Tools")) {
+      if (ImGui::MenuItem("Trajectory QC")) {
+        if (submaps.empty()) {
+          logger->warn("no map loaded");
+        } else {
+          trajectory_qc->set_submaps(submaps, loaded_map_path);
+        }
+        trajectory_qc->show();
+      }
+      ImGui::EndMenu();
+    }
+
     ImGui::EndMainMenuBar();
   }
 
@@ -94,6 +113,7 @@ void OfflineViewer::main_menu() {
     if (!map_path.empty()) {
       logger->debug("open map from {}", map_path);
       recent_files.push(map_path);
+      loaded_map_path = map_path;
 
       if (boost::filesystem::exists(map_path + "/config")) {
         logger->info("Use config from {}", map_path + "/config");

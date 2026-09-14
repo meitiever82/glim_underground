@@ -4,6 +4,7 @@
 #include <glim/mapping/global_mapping.hpp>
 #include <glim/mapping/async_global_mapping.hpp>
 #include <glim/viewer/interactive_viewer.hpp>
+#include <glim/viewer/editor/trajectory_qc_panel.hpp>
 
 namespace guik {
 class ProgressModal;
@@ -30,6 +31,8 @@ private:
   std::string init_map_path;
   std::string export_map_path;
   std::unique_ptr<guik::ProgressModal> progress_modal;
+  std::unique_ptr<TrajectoryQCPanel> trajectory_qc;
+  std::string loaded_map_path;
 
   std::unordered_set<std::string> imported_shared_libs;
   std::unique_ptr<AsyncGlobalMapping> async_global_mapping;
