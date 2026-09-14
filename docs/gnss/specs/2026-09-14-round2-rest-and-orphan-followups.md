@@ -101,3 +101,69 @@ rosbag2 脚本与 launch/yaml/README）执行期间各轮评审提出、经裁�
 | D 文档笔误(record_gnss.sh / yaml / README gpchc) | 已修 | f4124fb |
 | (新)binary 裸名字起不来、崩溃循环静默 | 父进程按 PATH 解析;每次派生/退出打日志;启动前检查 | 7a705a5、874ee4e |
 | (新)conf 缺 `ant2-postype`、非法值静默回落 | 新增 `base_pos_type`/`bds_ar_mode`/`glo_ar_mode`;全部枚举按 2.5.1 校验 | fec906d |
+
+## 加固轮最终评审之后仍留下的项(2026-09-14)
+
+`feat/round2-hardening` 分支(计划 `.superpowers/sdd/2026-09-14-round2-hardening/`)经过 7 个 Task 加最终整分支评审
+后合入,评审结论「有修复项即可合入」,7 个修复项(F1-F7)已在本轮的 `glim_ext` 修复提交中处理完(其中 F3 就是下面
+「rtkrcv_node.cpp / TcpStream / sol stream」一节里原先记录的构造函数 catch 路径 use-after-destroy,已修复,不再重复
+记录)。以下是各 Task 过程评审中判定「不阻塞合并」的次要遗留项(取自 `progress.md` 里所有 `minor (deferred)` 记录),
+以及最终评审新提出的两条,按区域归类,供轮 3 参考。
+
+### pos_io.hpp / test_pos_io.cpp(Task 1)
+
+- `pos_io.hpp` 的注释仍写着 `open()` 通过 `read_pos()` 收集已有 key,实际已经改名为 `read_pos_stream`。
+- `test_pos_io.cpp` 里有两段紧挨着的匿名 namespace,可以合并。
+- eof 特殊情况(读取在最后一个 `'\n'` 之前停止)没有测试覆盖。
+- `size` 通过 `stat` 拿到之后,如果文件在 stat 和扫描之间被截断或变大导致大小对不上,现在的 fail-closed 行为没有写文档说明。
+- 按简报要求新增的 `pos_io` 测试用固定的 `tmp_path` 文件名而不是 `mkdtemp`;`ASSERT` 失败时文件会留在 `/tmp`。
+- (最终评审新增)`test_pos_io` 里既有的 `PosWriter` 用例在 `/tmp` 留下固定名字的文件 `pw_*.pos`,违反了本轮的 `mkdtemp` 约定。
+
+### ProcessSupervisor(Task 2)
+
+- 报告里缺少 `SkipsNonExecutableFilesAndDirectories`/`NullOrEmptyInputsResolveToNothing` 两个用例的 RED 证据
+  (评审用变异测试验证过两者确实可杀);去掉 `if (name.empty()) return {};` 这一行不会让任何测试失败
+  (简报规定的断言测不出这一处)。
+- `on_spawn` 回调的 `executable` 参数从未被断言过,即使传成 `on_spawn(pid, cfg_.binary)` 也能通过测试——Task 4 用到了这个参数。
+- `waitpid` 出错(比如 `ECHILD`)时的 `break` 分支会报告 `exited=false signaled=false` 且 `detail` 为空,errno 丢失。
+- `running_` 在 spawn 失败分支(:264/:267)和退出分支(:530/:534)里各被读了两次:如果在两次读取之间插入 `stop()`,
+  会先读到 `will_restart=true` 再 `break`;应该只读一次存到局部变量。
+- 退避时间的计算公式在 spawn 失败分支和崩溃循环分支里各写了一遍(简报要求如此)。
+- supervisor 线程里 `getenv("PATH")` 和并发的 `setenv` 之间不是线程安全的(已写注释说明);
+  测试在 `PATH` 原本未设置时用 `setenv("")` 恢复,应该用 `unsetenv`。
+- `on_spawn` 在记录 `t0` 之前就被调用,导致回调本身耗时的部分没有算进 `lifetime_s`。
+
+### navsys 配置校验(Task 3)
+
+- `navsys` 的报错信息格式是 `navsys=128` 而不是 `navsys="128"`(简报代码原文如此)。
+
+### rtkrcv_node.cpp / TcpStream / sol stream(Task 4)
+
+- 新增成员的注释说"不假设同一线程",但相邻的已有注释说"同一个 TcpStream 线程"
+  (`tcp_stream.cpp` 证实确实是同一个 worker 线程),两处注释互相矛盾。
+- "非空闲断开会结束安静期"这个分支只被联调时新写的测试覆盖到;`FirstConnectIsPrinted` 这个用例即使
+  `on_status` 恒为 `true` 也能通过;节点里 `on_solution_line` 的接线本身没有测试。
+- (最终评审新增)隧道与开阔天空目前无法区分:应在安静期内加一条 `WARN_THROTTLE`(10–30 分钟)报告距上一条解的
+  时长;轮 3 再增加节点级健康信号(距上一条解时长、上行字节计数)——目前单靠日志闸门分不清"隧道"和"配置错误"。
+
+### 测试工装 harness(Task 5)
+
+- commit `bb3268a` 的说明把 mutation 3 的 RED 证据描述错了(真正会失败的断言是 test:84-85 的
+  `kill(child,0)`/退出计数,不是 20 秒等待);这里做更正,不改历史。
+- `test_rtkrcv_node_process.cpp` 里 `ASSERT_*` 提前返回时会漏清理 `mkdtemp` 出来的临时目录(没有 RAII)。
+- busy-port 用例匹配的是"孤儿"这个词,但 `kProbeFailed` 的报错信息里也有这个词,应该改成匹配"已经有人在监听"。
+- `count_occurrences`(harness 公共 API)在 needle 为空字符串时会死循环。
+- harness 里的 socket 没有设置 `SOCK_CLOEXEC`,子进程 `execve` 前也没有关闭多余的 fd,节点会继承测试的 fd。
+- `NodeProcess` 里 `fork` 失败是静默的(`wait_exit` 返回 -1 和超时是同一种表现);`pick_free_port` 三次调用之间
+  有竞争窗口;test:115 的断言缺少日志辅助诊断。
+
+### 真实二进制测试与构建(Task 6)
+
+- `test_rtkrcv_real_binary` 失败路径下临时目录没有清理(没有 scope guard,简报要求如此)。
+- `ROS_DOMAIN_ID` 的计算公式 `40+getpid()%50` 和 `test_rtkrcv_node_process` 共用,并行跑 ctest 时大约有 2% 概率撞车。
+- 构建警告 `CMP0167`/`gtest_vendor` 的 cmake 最低版本告警是历史遗留;这台机器上 colcon 需要先
+  `source /opt/ros/humble/setup.bash`(pyenv shim 的问题)。
+
+### 文档(Task 7)
+
+- README 里插入 gpchc 免责声明段落后留下一行较短的原始行(渲染没问题)。
