@@ -85,3 +85,19 @@ rosbag2 脚本与 launch/yaml/README）执行期间各轮评审提出、经裁�
 - `gnss_bringup/README.md:304` 的录制默认话题清单与脚本一致，也列出了 `/gnss_cgi610/rtk_fix_gpchc`，
   需要按"gpchc 待现场协议确认"统一口径。
 - Task 1 的 commit body 与报告写的是 103 个用例，实际是 104 个（仅作记录，不改历史）。
+
+## 处理状态(`feat/round2-hardening`,2026-09-14 计划)
+
+2026-09-14 用真实 RTKLIB-EX 2.5.1 联调又发现两个在车上一条解都出不来的缺陷(yaml 默认 `binary`
+永远起不来;conf 缺 `ant2-postype`),与下列遗留项一并在该分支处理。
+
+| 条目 | 处理 | 提交 |
+|---|---|---|
+| A.1 去重扫描提前 EOF | `open()` 比对扫描消费字节数与文件大小 | 52b3326、2952605 |
+| A.2 `read_glim_traj` 未检查 badbit | 已检查,并加 `std::istream&` 重载 | 52b3326、2952605 |
+| B.1 `rtkrcv_node.cpp` 无测试 | 节点级子进程测试 5 条 + 真实 rtkrcv 回归 1 条 | bb3268a、b76fbd8 |
+| B.3 测试 hook 门控 | 部分:新增的 `read_pos`/`read_glim_traj` 流重载测试走真实 sentry 路径,不依赖 hook;hook 门控本身未改 | 52b3326、2952605 |
+| C.4 `open()` 拒绝时无诊断 | 未处理 | — |
+| D 文档笔误(record_gnss.sh / yaml / README gpchc) | 已修 | f4124fb |
+| (新)binary 裸名字起不来、崩溃循环静默 | 父进程按 PATH 解析;每次派生/退出打日志;启动前检查 | 7a705a5、874ee4e |
+| (新)conf 缺 `ant2-postype`、非法值静默回落 | 新增 `base_pos_type`/`bds_ar_mode`/`glo_ar_mode`;全部枚举按 2.5.1 校验 | fec906d |
