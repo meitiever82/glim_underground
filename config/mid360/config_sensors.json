@@ -48,10 +48,11 @@
     "imu_bias_noise": 0.001,
     // LiDAR config
     "global_shutter_lidar": false,
+    // Livox MID-360 manual: IMU at (11.0, 23.29, -44.12) mm in the point cloud frame, axes aligned
     "T_lidar_imu": [
-      0.006,
-      -0.012,
-      0.008,
+      0.011,
+      0.02329,
+      -0.04412,
       0.0,
       0.0,
       0.0,
