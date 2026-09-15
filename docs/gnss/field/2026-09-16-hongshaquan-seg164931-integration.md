@@ -6,6 +6,7 @@
   - 回放工具:`b4dba99`、`38a33ea`、`adba6fc`、`26cb18f`
   - 产品修复:`a911a91`、`e7c7895`、`d2d97c3`、`4ccf694`
   - 评估脚本:`763ca56`、`6362e74`(fix round 1)
+  - 整分支审阅后的修复轮:`b0d4cc5`(ar_elmask 副作用写进配置说明)、`10ade39`(运行脚本不再静默覆盖、路径可配、收窄 pkill 与残留检查)、`b0f0551`(rtkrcv_node 告警节流改稳态时钟)、`ea4a3d7`(field_eval 空 ref 报错、随包安装)。本文 §1、§7、§9、§10 同轮修订。
 - 数据段:`<seg>` = `/home/steve/Documents/Datasets/tage/hongshaquan/20260915/seg_164931_165748`。数据只读,产物都在 `<seg>/integration_20260916/`。
 - 主要追溯文件:
   - 部件核查:`<seg>/integration_20260916/inventory.md`
@@ -29,11 +30,18 @@
    - 同一天另两次抓包也缺这三帧。
    - 本次联调在 CAN 日志副本里补了全零 σ 帧才跑通,所以 can 的 σ 没有意义。
    - 按约束没有改 finder_ros,待维护者定方案(§7 问题 1)。
+   - **注意先后顺序**:修好 σ 帧、CAN 真正开始发布之后,`device_divergence` 会拿 610 的 base_link 位置直接比天线位置(差 8.6 m 杆臂,第 5 条),`/gnss/diagnostics` 会常驻 ERROR/serious。所以 σ 帧的修复必须与"`device_divergence` 同点比较"(§7 问题 9)同时上线,或在它之后上线(§9)。
 2. **配置修复之后,补上星历(B)的实时 RTK 与后处理结果一致。**
    - rtkrcv 489/497 条固定(98.4%)。首次固定在首解后 +8 s,即数据起点 +9 s;ref 是 +12 s。
    - 双方都固定的 486 对:水平差中位数 0.002 m、p95 0.005 m、最大 0.009 m;|高程差| 中位数 0.004 m、p95 0.014 m、最大 0.072 m。
    - 修复前 B0 是 497 条全部浮点。
-   - 注意:rtkrcv 和 ref 用的是同一套引擎、同一份观测和差分,所以这只说明实时链路复现了后处理结果,**不说明绝对精度**。
+   - 注意:rtkrcv 与 ref 都是 RTKLIB-EX 2.5.1 的解算核心,原始数据也同源(rtkrcv 读 `cgi610.dat`,ref 读 rover.obs,两者复算逐历元同 Q、水平差 0.0000 m,inventory 4b;基站观测都来自 `base.rtcm3`,ref 用的是由它写出的 base.obs),所以这只说明实时链路复现了后处理结果,**不说明绝对精度**。
+   - 但两边的处理选项并不相同,逐条对照不能当作"同一配置":
+     - 系统:rtkrcv `pos1-navsys=63`(GPS、SBAS、GLONASS、Galileo、QZSS、北斗,含 GLONASS);ref 为 `rnx2rtkp -sys G,E,C`(inventory 4b,参数取自 `README_LIO.md`;`rtk_check.pos` 头部不记录处理选项)。
+     - 高度角:rtkrcv `pos1-elmask=10` + `pos2-arelmask=15`;ref 用 rnx2rtkp 默认值,elmask 15°、AR 高度角门限 0。
+     - AR 模式:rtkrcv `pos2-armode=continuous`;ref 未加 `-i`/`-h`,按 EX 2.5.1 源码 `prcopt_default` 为 fix-and-hold。
+     - 星历:rtkrcv 用的是 `rover.nav` 编码成 RTCM3 后注入差分流的星历(开头一次、之后每 30 s),外加 dat 里 610 自带的 GALEPHEMERISB(13 条)/BDSEPHEMERISB(1 条);ref 直接读 `rover.nav`。
+     - 基站坐标:rtkrcv 取差分流 1006;ref 用 `-r` 给 base.obs 头部坐标(两者相同,§6.4)。
 3. **修复前实时解一次都没固定,根因是配置。**
    - 当时是 `pos1-elmask=10`,没设模糊度固定的高度角门限;10–15° 的低卫星多路径大,把 ratio 压在 1.1–1.6。
    - 修复:新增 `ar_elmask`(`pos2-arelmask=15`),提交 `a911a91`。
@@ -41,7 +49,7 @@
 4. **610 原始输出里没有 GPS 星历,平台差分流里也没有星历电文。** 所以原样回放(A)全程只有 3–5 颗 Galileo:
    - 401 条解(Q2 360 / Q4 41),从未固定;
    - 相对 ref(Q1),水平差中位数 3.94 m,高程差均值 −12.33 m。
-   - 修复前后位置、Q、ns 逐条相同,修复对 A 的定位不起作用;只有 ratio 列不同(A0 为 0.0–3.0,A 全为 0.0),这是修复带来的副作用,见第 6 条。
+   - 修复前后位置、Q、ns 逐条相同,修复对 A 的定位不起作用;只有 ratio 列不同(A0 的 Q2 历元多数 ratio 在 1.0–3.0,A 全为 0.0),这是修复带来的副作用,见第 6 条。
    - 现场要么让 610 板卡输出星历,要么让平台转发星历电文(§8)。
 5. **610 融合解与 RTK 天线的偏差就是车辆外参里已知的杆臂,实测与外参吻合到 1–2 cm;`device_divergence` 因为没按同一点比较,结构性地一直是 serious。**
    - 610 的 INSPVAXB / CAN 位置输出在 base_link,即后轴中心正下方地面;GNSS 天线在 base_link 的(前 8.45, 左 1.85, 上 5.16)m。见 `extrinsics_tage_truck.yaml` 的 `T_base_link_gnss_antenna`。
@@ -49,8 +57,9 @@
    - 扣除后水平残差中位 0.056 m;前向差对速度回归斜率 −0.002 s,没有时间偏差。
    - 所以"疑似 610 融合问题"的归因不成立。`gnss_diag` 需要先把 610 的 base_link 位置按杆臂和航向换到天线点(或反过来)再比较(§5、§9)。
 6. **修复 `a911a91`(`pos2-arelmask=15`)带来一个回退:rtkrcv 在没尝试模糊度固定的浮点历元上把 ratio 写成 0。**
-   - A 的 401 条、B 的 8 条浮点历元 ratio 全为 0。A0 的 401 条里 300 条 ratio 在 1.0–3.0,其余 101 条为 0。
-   - `diag_node_support.hpp` 把 ratio ≤ 0 当作"源不提供",`ambiguity` 规则因此永远不会触发:A0 有 2 次 ambiguity 事件,A 为 0。今晚不改诊断代码,只记录(§7 问题 16)。
+   - 证据只看 Q2(浮点)历元:A0 的 360 条 Q2 里 300 条 ratio 在 1.0–3.0、60 条为 0;修复后 A 的 360 条 Q2 全为 0,ratio > 0 的浮点历元从 300 条降到 0 条。
+   - 不能当证据的:A 的 401 条里另有 41 条 Q4(DGPS),这类历元两遍 ratio 都是 0;B 仍为浮点的 8 条(08:49:32–08:49:39 UTC,即开头 8 s)在 B0 里同一批历元 ratio 本来就是 0,不是修复造成的。
+   - `diag_node_support.hpp` 把 ratio ≤ 0 当作"源不提供",`ambiguity` 规则在 rtkrcv 没尝试固定的历元不会触发;本段 A 全程如此:A0 有 2 次 ambiguity 事件,A 为 0。今晚不改诊断代码,只记录(§7 问题 16)。
 7. **诊断事件里的"现象"大多属实,"原因"多半说不通。**
    - A 的 `low_sats` 归因为"疑似遮挡",但同期 ref 有 20 颗卫星。
    - B 的 `cycle_slip` / `multipath` 从启动宽限期一结束就一直开到退出:截至数据终点约 436 s,事件记录时长 446.7 s,含数据结束后的尾部。同期 rtkrcv 100% 固定,与 ref 只差 2 mm。
@@ -146,7 +155,7 @@ pos_writer → pos/20260915/{can,rtkrcv}.pos;gnss_diag → diag/;record_gnss.sh 
 - 配对规则:按时间一对一取最近,容差 0.1 s。差值 = rtkrcv − ref,在 ref 点的 ENU 下计算。
 - B 有 3 个历元是 rtkrcv 已经固定、ref 还是浮点,所以首次固定比 ref 早 3 s。这 3 个历元不计入"双方都 FIXED"。
 - A0 与 A 的 rtkrcv.pos 前 14 列(时间、位置、Q、ns、σ、age)逐条相同,`diff` 为 0 行,说明 A 的瓶颈是星历,不在配置。
-  - 第 15 列 ratio 不同:A0 有 300 条在 1.0–3.0、101 条为 0;A 的 401 条全为 0。
+  - 第 15 列 ratio 不同:A0 的 Q2 360 条里 300 条在 1.0–3.0、60 条为 0,Q4 41 条为 0;A 的 401 条全为 0。
   - 按行 diff 有 300 行不同,都只差 ratio。原因见 §7 问题 16。
 
 ### 4.2 诊断
@@ -287,7 +296,7 @@ A 没有 `ambiguity` 事件,不是因为情况变好,而是 ratio 恒为 0 让�
 | 5 | 驱动从不填 `RtkFix.ratio`(恒 0);CAN 质量 100% FIXED,而天线处 ref 前 12 历元是浮点 | inventory 3.3/3.4;eval §1 | **未修复**,信息性。610 融合标签不能当作当历元 RTK 状态;`ambiguity` 规则只能用 rtkrcv 的 ratio |
 | 6 | `cgi610.dat` 夹带约 378 kB RTCM3 帧和 `\n`;RANGECMPB 头部时间最多倒退 190 ms(508 处) | inventory 4a、"三路数据时间" | **已在回放工具中处理**(按文件顺序发原始字节,块时刻取累计最大值)。任何按时间解析 dat 的工具都要注意 |
 | 7 | `base_warmup_s` 600 s > 数据 497.3 s,基线从未学到 | 四遍都没有 `diag/base_baseline` | **未验证**。需要更长的数据段,或回放时临时调小 `base_warmup_s` |
-| 8 | convbin 的 NovAtel 格式名是 `nov`,不是 `oem4`(rtkrcv 仍是 `oem4`) | inventory 4a | 已记录;计划与工具里的命令已按 `-r nov` 写 |
+| 8 | convbin 的 NovAtel 格式名是 `nov`,不是 `oem4`(rtkrcv 仍是 `oem4`) | inventory 4a | 已记录。inventory 4a 与本文 §9、§10 的命令用 `-r nov`;**计划 Task 1 里仍写 `convbin -r oem4`,计划文本没有改**;回放与评估工具都不调用 convbin |
 | 9 | `device_divergence` 拿 610 的 base_link 位置(后轴中心正下方地面)直接比 rtkrcv 的天线位置,相差已知杆臂 (8.45, 1.85, 5.16) m(前左上),结构性地常驻 serious。实测杆臂 (8.448, 1.860, 5.139) 与外参吻合到 1–2 cm | §5;eval/B.md §3.1;`extrinsics_tage_truck.yaml`;`README_LIO.md` §4 | **未修复**。`gnss_diag` 在比较前需用杆臂 + 610 航向把 610 位置换到天线点(或把 rtkrcv 换到 base_link);610 输出点不动 |
 | 10 | 诊断归因不准:low_sats 归为遮挡;ambiguity 归为遮挡过渡区;B 的 cycle_slip/multipath 开满全段而解算完好;no_solution 关闭滞后约 11 s | §6 | **未修复**,需要更多数据评估阈值 |
 | 11 | `gnss_core` 的 `read_pos` 与 `export_bag_to_pos.load_epochs_from_pos` 只认"日期 时间"列;`calibrate_sigma_scale rtk_check.pos …` 输出 `ref … (0 records)`,退出码 3 | 本次实测 | **未修复**(本计划外)。`field_eval.py` 自己解析两种格式并带单测;建议 `read_pos` 支持"周 周内秒",或文档要求 rnx2rtkp 加 `-t` |
@@ -295,7 +304,7 @@ A 没有 `ambiguity` 事件,不是因为情况变好,而是 ratio 恒为 0 让�
 | 13 | 回放 `--tail-clock-s 10` 让诊断节点在数据结束后报 corr_outage / no_solution | §6 | 属回放产物,不是缺陷;`field_eval.py` 会标出"数据结束后才打开" |
 | 14 | 驱动在 `timestamp_source=gps` 时 `header.stamp` 是数据日时间,墙钟下早约 8.25 h;CAN 抓包时间比板卡 GPS 时间早约 9.5 ms(中位数) | inventory 3.4、"三路数据时间" | 信息性。整链路必须用 sim time 或 `gnss_time`;50 Hz 级时间对齐分析要注意 |
 | 15 | Task 4 两份报告与 run 摘要把"首解 +19 s(B)、+115 s(A)"写成相对数据起点,实际是拿 GPST 时刻减了 UTC 起点 | 本文 §4.1 按 eval 更正 | **已更正**:实际是 +1 s(B)、+97 s(A) |
-| 16 | **`a911a91` 引入的回退**:`pos2-arelmask=15` 后,rtkrcv 在没尝试模糊度固定的浮点历元上把 ratio 写成 0(A 401/401、B 8/8)。`diag_node_support.hpp` 把 ratio ≤ 0 映射为"源不提供",`ambiguity` 规则(`diagnosis.cpp`,要求 FLOAT 且 ratio 存在且 < min_ratio)永远不触发:A0 有 2 次,A 为 0 次 | 对 `run_A_before_conf_fix` 与 `run_A` 的 rtkrcv.pos 做 diff:前 14 列 0 行不同,第 15 列 ratio A0 为 300 条 1.0–3.0 + 101 条 0,A 全为 0;B0 浮点 497 条中 489 条 ratio ≥ 1.0,B 的 8 条浮点全为 0 | **未修复**(控制者裁定今晚不改诊断代码)。可选:① ratio 缺失时,ambiguity 规则按"持续 FLOAT 超过 N s"触发;② rtkrcv_node 区分"AR 未尝试"与"源不提供 ratio"(如单独字段或诊断值),诊断据此判定;③ 取 rtkrcv stat 里的 AR 信息 |
+| 16 | **`a911a91` 引入的回退**:`pos2-arelmask=15` 后,rtkrcv 在没尝试模糊度固定的浮点历元上把 ratio 写成 0(A 的 360 条 Q2 全为 0,A0 同一批里 300 条 > 0)。`diag_node_support.hpp` 把 ratio ≤ 0 映射为"源不提供",`ambiguity` 规则(`diagnosis.cpp`,要求 FLOAT 且 ratio 存在且 < min_ratio)在 rtkrcv 没尝试固定的历元不触发(半遮挡、洞口过渡区常见;本段 A 全程如此):A0 有 2 次,A 为 0 次 | 对 `run_A_before_conf_fix` 与 `run_A` 的 rtkrcv.pos 做 diff:前 14 列 0 行不同。只看 Q2(浮点)历元:A0 的 360 条里 300 条 ratio 1.0–3.0、60 条为 0,A 的 360 条全为 0。A 另有 41 条 Q4(DGPS),两遍 ratio 都是 0,不计入。B 的 8 条浮点(08:49:32–39 UTC)在 B0 里同一批历元 ratio 已经是 0(B0 其余 489 条浮点为 1.0–1.6),不是修复造成的,不作证据 | **未修复**(控制者裁定今晚不改诊断代码)。可选:① ratio 缺失时,ambiguity 规则按"持续 FLOAT 超过 N s"触发;② rtkrcv_node 区分"AR 未尝试"与"源不提供 ratio"(如单独字段或诊断值),诊断据此判定;③ 取 rtkrcv stat 里的 AR 信息 |
 
 ---
 
@@ -329,10 +338,12 @@ spec §13 "平台差分协议、板卡原始格式未确认(P0)"这一项,本段
 按优先级:
 
 1. **CAN σ 帧(阻断)。** 请维护者二选一:车上 610 打开 CAN 806/808/811,或授权修改 `gnss_chcnav`,让它在缺 σ 帧时照常发布。前者改完后抓 1 分钟 candump,确认 14 个 ID 都在。
+   - **必须与第 3 条同时上线,或在第 3 条之后上线。** 现在实车上 CAN 零输出,`device_divergence` 没有 610 数据可比,反而不报;一旦 CAN 开始发布,`device_divergence` 会直接拿 base_link 位置比天线位置(差 8.6 m),`/gnss/diagnostics` 从此常驻 ERROR/serious,真正的故障会被淹没。
 2. **星历来源。** 在 610 原始输出口加 GPS/GLONASS/BDS/Galileo 星历日志,或请平台在差分流里转发星历电文。改完抓一段 dat,用 `convbin -r nov` 核对导出星历里 G > 0。
 3. **`gnss_diag` 的 `device_divergence` 改为同点比较。** 用已知杆臂 `T_base_link_gnss_antenna` = (8.45, 1.85, 5.16)m 和 610 航向,把 610 的 base_link 位置换到天线点(或把 rtkrcv 换到 base_link)后再算偏差;杆臂做成参数。
    - 本段扣除杆臂后残差中位 0.056 m、p95 0.170 m,可用作阈值参考。
    - 在改之前,这台车上 `device_divergence` 结构性地常驻 serious,没有参考价值。
+   - 这一条是第 1 条(CAN σ 帧)上线的前置条件,见第 1 条。
    - 610 输出点不要改:GT、外参和 LIO 都依赖 base_link。
 4. **修 `a911a91` 带来的 ambiguity 规则失效**(§7 问题 16):在"ratio 缺失时按持续 FLOAT 触发"和"rtkrcv_node 报告 AR 未尝试"之间选一个,并补测试;修完用 A 重跑,确认 ambiguity 事件恢复。
 5. **验证 IMU → 天线杆臂**:`T_base_link_cgi610_imu` 是网页杆臂推算的,未验证,用 §9.3 工具估计。
@@ -355,12 +366,18 @@ cd /home/steve/glim_ws && source /opt/ros/humble/setup.bash && colcon build --sy
 cd /home/steve/driver_ws && colcon build --symlink-install --packages-select gnss_msgs gnss_chcnav
 # 前置:vcan0 已建好且 UP(需要 sudo,由维护者操作,见 $T/README.md);can-utils;RTKLIB-EX 2.5.1 rtkrcv
 
-# 1. 整链路两遍(各约 9 min;脚本会先清空 run_A / run_B,修复前的存档在 run_*_before_conf_fix)
-ROS_DOMAIN_ID=66 $T/run_field_integration.sh A $SEG
-ROS_DOMAIN_ID=66 $T/run_field_integration.sh B $SEG
-#    试跑:ROS_DOMAIN_ID=66 $T/run_field_integration.sh dryB $SEG 120
+# 1. 整链路两遍(各约 9 min)
+#    注意:integration_20260916/run_A、run_B 是本文引用的证据。脚本(10ade39 起)遇到非空运行目录会拒绝,
+#    只有加 --force 才清空——重跑请换一个新的产物根目录,不要用 --force 覆盖本轮结果。
+#    脚本自己固定 ROS_DOMAIN_ID=66;GLIM_WS_INSTALL / DRIVER_WS_INSTALL 可覆盖工作空间路径(见 $T/README.md)。
+NEW=$SEG/integration_$(date +%Y%m%d)_rerun && mkdir -p $NEW/eval
+GNSS_FIELD_INTEG_DIR=$NEW $T/run_field_integration.sh A $SEG
+GNSS_FIELD_INTEG_DIR=$NEW $T/run_field_integration.sh B $SEG
+#    试跑:GNSS_FIELD_INTEG_DIR=$NEW $T/run_field_integration.sh dryB $SEG 120
+#    (本轮修复的核对:GNSS_FIELD_INTEG_DIR=$SEG/integration_20260916/fixcheck …dry $SEG 30,第二次调用退出 2 拒绝覆盖)
 
-# 2. 评估(读录包要先 source 三层环境)
+# 2. 评估(读录包要先 source 三层环境;装好后也可 ros2 run gnss_bringup field_eval.py)
+#    下面是生成本文 eval/*.md 的原命令,输出写回 integration_20260916/eval;评估新的重跑结果时把 --run/--out 换到 $NEW
 source /opt/ros/humble/setup.bash; source /home/steve/glim_ws/install/setup.bash; source /home/steve/driver_ws/install/setup.bash
 for r in A B A_before_conf_fix B_before_conf_fix; do
   python3 $T/field_eval.py --run $SEG/integration_20260916/run_$r --ref $SEG/gnss/rtk_check.pos \
@@ -373,6 +390,9 @@ env -i HOME=$HOME PATH=/usr/bin:/bin python3 $T/field_eval.py --run $SEG/integra
 diff <(grep -v '^%' $SEG/integration_20260916/run_A_before_conf_fix/pos/20260915/rtkrcv.pos | awk '{NF=14; print}') \
      <(grep -v '^%' $SEG/integration_20260916/run_A/pos/20260915/rtkrcv.pos | awk '{NF=14; print}') | wc -l   # 0
 grep -v '^%' $SEG/integration_20260916/run_A/pos/20260915/rtkrcv.pos | awk '{print $15}' | sort | uniq -c           # 401 0.0
+#    按 Q 分档看 ratio(第 6 列 Q、第 15 列 ratio;§1.6 的 Q2 300/60 与 Q4 41)
+for r in A_before_conf_fix A B_before_conf_fix B; do echo $r; grep -v '^%' $SEG/integration_20260916/run_$r/pos/20260915/rtkrcv.pos \
+  | awk '{print "Q"$6, ($15>0 ? "ratio>0" : "ratio=0")}' | sort | uniq -c; done
 
 # 3. 离线参照(inventory 4a/4b)
 convbin -r nov $SEG/raw/cgi610.dat -o cgi610.obs -n cgi610.nav
@@ -384,6 +404,6 @@ python3 -m unittest discover -s $T/tests
 cd /home/steve/glim_ws && colcon test --packages-select gnss_core gnss_bringup && colcon test-result --all
 ```
 
-测试结果(2026-09-16,提交 `6362e74` 之后):
+测试结果(2026-09-16,修复轮提交 `ea4a3d7` 之后):
 - `colcon test-result --all`:**544 tests,0 errors,0 failures,1 skipped**。skip 是既有的 `test_local_reserver`。
-- Python 套件在 ctest 里算 1 条(`test_field_replay_py`),其中 `Ran 116 tests`,含 `test_field_eval.py` 的 41 条。
+- Python 套件在 ctest 里算 1 条(`test_field_replay_py`),其中 `Ran 120 tests`,含 `test_field_eval.py` 的 42 条、`test_proc_pattern.py` 的 6 条。
