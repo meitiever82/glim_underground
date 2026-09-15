@@ -57,3 +57,12 @@
 - 覆盖缺口：`corr_age` 优先级、事件位置的来源、`solver_enabled` / `control_points` 的透传、构造参数顺序。
 - 测试夹具 `set_bits` 会静默截断。
 - `$SAT` 行被解析了两次。
+
+## 轮 3b 处理状态(2026-09-15,计划 `docs/gnss/plans/2026-09-15-round3b-diag-node.md`)
+
+- A.1、A.2:已处理——只用两路都 FIXED 的样本学习,学到的 σ 上限 `divergence_sigma_max_m = 0.10`(Task 2)。
+- B 全部已处理:ratio 加进 `RtkFix`(Task 1);`epoch_t` 由 `gnss_time > 0` 填入、配对持续失败打 WARN;
+  ROS 时间 + 回跳检测重建引擎;单线程 executor;停机顺序;基线持久化、`last_history` 跨日期读取、
+  `reset_base_baseline` 服务;清理先录包后 `.pos`、清完仍超水位打 WARN;启动宽限期 60 s(Task 3–6)。
+- C 已顺带处理:偏差监测规则 5 注释、held 基线不存当前 σ 的测试(Task 2);`fs::space` 失败不再静默
+  (`disk_used_pct`,Task 6)。其余 C 项仍未处理。
