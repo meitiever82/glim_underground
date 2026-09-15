@@ -65,4 +65,5 @@
   ROS 时间 + 回跳检测重建引擎;单线程 executor;停机顺序;基线持久化、`last_history` 跨日期读取、
   `reset_base_baseline` 服务;清理先录包后 `.pos`、清完仍超水位打 WARN;启动宽限期 60 s(Task 3–6)。
 - C 已顺带处理:偏差监测规则 5 注释、held 基线不存当前 σ 的测试(Task 2);`fs::space` 失败不再静默
-  (`disk_used_pct`,Task 6)。其余 C 项仍未处理。
+  ——`disk_used_pct` 返回空(Task 6),这一轮仍只按保留天数删除,由 `gnss_cleanup_node` 打 WARN 说明
+  水位不起作用(整分支评审修复 M3)。其余 C 项仍未处理。
