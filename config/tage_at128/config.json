@@ -1,0 +1,22 @@
+{
+  /*** Global Configuration ***/
+  // 踏歌宽体车(红沙泉 2026-09-15):AT128P 主雷达 + CGI-610 IMU,喂 bag_lio。
+  // CPU 变体是本配置集的默认(轮 5 计划设计决定 2):A/B/C 三组只在全局约束上不同,
+  // CPU 路径让结论可在无 CUDA 的机器上复现。要换 GPU 就把下面三行的 _cpu 改成 _gpu。
+  "global": {
+    "config_path": "",
+    "config_ros": "config_ros.json",
+    "config_viewer": "config_viewer.json",
+    "config_sensors": "config_sensors.json",
+    "config_preprocess": "config_preprocess.json",
+    "config_odometry": "config_odometry_cpu.json",
+    "config_sub_mapping": "config_sub_mapping_cpu.json",
+    "config_global_mapping": "config_global_mapping_cpu.json",
+    // glim_ext 扩展模块的配置:这里的键优先于 <config_ext>/config_ext.json
+    // (GlobalConfigExt::get_config_path(),glim_ext/include/glim_ext/util/config_ext.hpp:36-46)。
+    // 本配置集不提供 config_ext.json,所以三个模块的配置都必须列在这里。
+    "config_rtk_global": "config_rtk_global.json",
+    "config_rtk_odometry": "config_rtk_odometry.json",
+    "config_gnss_global": "config_gnss_global.json"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  /*** ROS-related config ***/
+  // 话题与外参按 Datasets/tage/hongshaquan/20260915/README_LIO.md §3。
+  // extension_modules 故意留空:轮 5 的每一次 run 由 glim_config_patch.py 按用例注入
+  // (C 组空、A 组 librtk_global.so、B 组 libgnss_global.so),避免"配置里写了什么"
+  // 和"这次跑的是什么"对不上。手动跑 viewer 时自己加 libstandard_viewer.so。
+  // playback_speed=0.0:glim_rosbag 不做回放节流(src/glim_rosbag.cpp:346 的
+  // `playback_speed > 0.0` 守卫),离线批跑尽可能快;里程计落后时仍有 workload 节流。
+  "glim_ros": {
+    "enable_local_mapping": true,
+    "enable_global_mapping": true,
+    "keep_raw_points": false,
+    "imu_time_offset": 0.0,
+    "points_time_offset": 0.0,
+    // bag_lio 的 IMU 是 m/s²(README_LIO.md §3「IMU 单位」),显式写 1.0,
+    // 不依赖 glim_ros.cpp:240 的自动判断。
+    "acc_scale": 1.0,
+    "playback_speed": 0.0,
+    "imu_frame_id": "cgi610_imu_flu",
+    "lidar_frame_id": "at128_flu",
+    "base_frame_id": "",
+    "odom_frame_id": "odom",
+    "map_frame_id": "map",
+    "publish_imu2lidar": true,
+    "tf_time_offset": 1e-6,
+    "extension_modules": [],
+    "imu_topic": "/cgi610/imu",
+    "points_topic": "/at128/points",
+    "image_topic": "/image"
+  }
+}

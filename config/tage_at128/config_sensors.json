@@ -1,0 +1,66 @@
+{
+  /*** Sensor configurations ***/
+  // T_lidar_imu 把 imu 系的点变到 lidar 系:p_lidar = T_lidar_imu * p_imu,TUM 格式
+  // [x,y,z,qx,qy,qz,qw](见 mid360/config_sensors.json 的注释块)。
+  // README_LIO.md §3:所有 *_flu 系轴向与 base_link 相同 → 旋转是单位阵;
+  // 平移 = imu 原点 − lidar 原点 = cgi610_imu_flu(6.85, 1.00, 2.28)
+  //                               − at128_flu(8.736806, -0.006244, 1.628447)
+  //                             = (-1.886806, 1.006244, 0.651553)
+  // 与 README_LIO.md §3 给 FAST-LIO 的 extrinsic_T(雷达原点在 IMU 系下)
+  // [1.886806, -1.006244, -0.651553] 恰好反号,互为校验。
+  // 注意 cgi610_imu_flu 的原点是网页杆臂推算值、未验证(extrinsics_tage_truck.yaml),
+  // README_LIO.md §6 建议打开外参在线估计;轮 5 的 §9.3 会独立测一次 IMU→天线杆臂。
+  "sensors": {
+    "imu_acc_noise": 0.05,
+    "imu_gyro_noise": 0.02,
+    "imu_int_noise": 0.001,
+    // 车载组合导航级 IMU,偏置随机游走比手持设备小一个量级(与 casbot 一致)
+    "imu_bias_noise": 1e-5,
+    "global_shutter_lidar": false,
+    "T_lidar_imu": [
+      -1.886806,
+      1.006244,
+      0.651553,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    // bag_lio 的点云是 velodyne 风格:intensity float32 + ring uint16 + time float32(相对 header.stamp 的秒)
+    "intensity_field": "intensity",
+    "ring_field": "ring",
+    "autoconf_perpoint_times": true,
+    "autoconf_prefer_frame_time": false,
+    "perpoint_relative_time": true,
+    "perpoint_time_scale": 1.0,
+    // 本次没录相机(README_LIO.md §6),以下保留 mid360 的占位值,不参与计算
+    "global_shutter_camera": true,
+    "image_size": [
+      752,
+      480
+    ],
+    "T_lidar_camera": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "intrinsics": [
+      815.498895336274,
+      817.4904316140473,
+      830.3149255906893,
+      639.4531613962971
+    ],
+    "distortion_model": "plumb_bob",
+    "distortion_coeffs": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  /*** Preprocessing parameters ***/
+  // AT128P:120° 前向视场,10 Hz,每帧约 7.5 万点,帧内时间 0–0.052 s。
+  // bag_lio 已剔除 NaN 与 0.5 m 内的点(README_LIO.md §3),near_thresh 保持 0.5。
+  // 场地是露天停车场、绕圈行驶,far_thresh 给 100 m。
+  "preprocess": {
+    "distance_near_thresh": 0.5,
+    "distance_far_thresh": 100.0,
+    "use_random_grid_downsampling": true,
+    "downsample_resolution": 0.5,
+    "random_downsample_target": 15000,
+    "random_downsample_rate": 0.1,
+    "enable_outlier_removal": false,
+    "outlier_removal_k": 10,
+    "outlier_std_mul_factor": 1.0,
+    "k_correspondences": 10,
+    "num_threads": 4
+  }
+}

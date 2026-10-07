@@ -1,0 +1,17 @@
+{
+  /*** gnss_global(上游朴素 GNSS 约束模块,§12.4 的 B 组对照)***/
+  // 这个模块直接把 pose.pose.position 当成"UTM 米"用,忽略协方差、忽略 IMU-GNSS 杆臂
+  // (modules/mapping/gnss_global/include/glim_ext/gnss_global_module.hpp:89-95 与该文件
+  //  头部的 @note)。轮 5 Task 7 喂给它的是 pos_to_enu 产出的局部 ENU 米,原点取
+  //  <seg>/gt/enu_origin.txt,与 gt/*.tum 同原点。
+  // prior_inf_scale 的 z 为 0 = 不约束高程,保留上游默认值,不为了对比而调它。
+  "gnss": {
+    "gnss_topic": "/gnss/pose",
+    "min_baseline": 10.0,
+    "prior_inf_scale": [
+      1e3,
+      1e3,
+      0.0
+    ]
+  }
+}
