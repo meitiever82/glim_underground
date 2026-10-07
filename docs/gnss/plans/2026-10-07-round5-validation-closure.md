@@ -23,7 +23,7 @@
 
 **流程**
 - **绝不执行 `git push`，绝不创建 PR。** 分支在本地做完、提交完整即止，推送与开 PR 由维护者本人完成。
-- 提交信息末尾加 `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`。
+- 提交信息末尾加 `Co-Authored-By: <实际执行本次工作的模型> <noreply@anthropic.com>`——命名**实际执行者**，子代理跑在 Sonnet 上就写 `Claude Sonnet 5`，不要照抄控制者的模型名（用户的长期要求：trailer 命名实际执行的模型）。
 - 每个新增测试都必须**亲眼见过它失败**（先写桩让它 RED，或对实现做一次变异让它红），并把 RED/变异证据写进该提交的 message。做不到的，在 message 里如实写明原因。
 - **数据集只读**：`/home/steve/Documents/Datasets/` 下只允许在 `<seg>/validation_20261007/` 这一个新建子目录里写东西。已有的 `bag/`、`bag_lio/`、`gnss/`、`gt/`、`integration_20260916/` 一律不得改动或删除。
 - **不改 `finder_ros`**（`/home/steve/Documents/GitHub/ztpilot/finder_ros`）的任何驱动源码；本计划不需要它。
@@ -415,7 +415,7 @@ config: add tage_at128 config set (AT128P + CGI-610, bag_lio)
 验证:无新代码,下一步 Task 1 Step 11 用这套配置跑 LiDAR-only 基线,
 日志里 T_lidar_imu / 话题 / 帧数正确即为通过。
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 ```
 
@@ -475,7 +475,7 @@ C 组(无 GNSS)是 §12.4 A/B 的分母,也是 §12.3 注入套件的参考轨�
 记录实际构建命令、既有测试基线,以及 traj_imu.txt 对 gt_cgi610_imu_flu.tum
 的对齐 RMSE。
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 ```
 
@@ -1008,7 +1008,7 @@ RED:桩实现(全部返回空)下 9 个用例里 7 个红,输出:
 其中 rtk_check.pos 是 "GPS 周 + 周内秒" 时间列,这是 PR #8 的 8fefcdc 第一次在真实
 数据上被验证。
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 ```
 
@@ -1416,7 +1416,7 @@ RED:
 ros2 bag info 确认两个话题与条数,输出记在
 docs/gnss/field/2026-10-07-round5-validation-closure.md §3。
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 ```
 
@@ -1850,7 +1850,7 @@ json.load(config_ros.json),一定抛 JSONDecodeError —— 那个脚本从未�
 RED:ModuleNotFoundError: No module named 'glim_config_patch'(11 个用例全 ERROR)。
 变异:删掉 strip_jsonc 里进入字符串状态的分支 → test_keeps_slashes_inside_strings 红。
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 ```
 
@@ -1992,7 +1992,7 @@ rtk_check.pos、test 为现场联调 run_B 的 rtkrcv.pos。
 
 glim_ext/config/config_rtk_global.json 只改注释(指向结果文档),默认值一字未动。
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 
 cd /home/steve/glim_ws/src/glim_underground
@@ -2015,7 +2015,7 @@ z 用的是设计值>。
 降到 [0.05,0.05,0.1],复跑一遍(run_A2):check_rtk_global_log.sh 仍八行 ok,
 RMSE <A2 vs A 的对比>。两次 run 都留档在数据段的 validation_20261007/。
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 ```
 
@@ -2188,7 +2188,7 @@ RED:脚本改前跑参考那一跑即 JSONDecodeError(make_config)——输出�
 本次改动没有新增单元测试:改的是编排脚本,它依赖 glim_rosbag 与 10 GB 级 bag,
 行为由 Task 4 的 glim_config_patch.py 测试 + 这次真实运行共同覆盖。
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 ```
 
@@ -2367,7 +2367,7 @@ docs/gnss/field/2026-10-07-round5-validation-closure.md。
   (段 A 98.4% 固定无中断、段 B 6.1% 浮动无中断)→ round1 plan 的 V10 不勾
 轮 1.5:<按实测结果写 门已开/门未开及原因>
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: <实际执行本任务的模型,如 Claude Sonnet 5> <noreply@anthropic.com>
 EOF
 ```
 
