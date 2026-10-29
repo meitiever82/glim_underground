@@ -61,13 +61,41 @@ Expected: 构建成功；`ls install/glim_ext/lib/librtk_global.so install/glim_
 Run: `colcon test --packages-select gnss_core glim_ext && colcon test-result --verbose`
 Expected: 全绿；若有红，先修再往下（记录红的原因）。
 
+### Task 0.5: 20261007 失败 run 根因诊断（复跑前的硬前置）
+
+**Files:**
+- 只读分析为主；产出写入 `<segA>/validation_20261010/eval/diagnosis_20261007.md`
+
+背景：spec §2.1——既有 RTK run 全部毁图（77~82m RMSE，systematic offset 形态），不诊断清楚不复跑。
+
+- [ ] **Step 1: 时间基准排查（零成本，先做）**
+
+检查 `rtk_check.pos` 与 `rtkrcv.pos` 头部时间系统（`% (time=GPST)` 还是 `time=UTC`）、段 A bag 内 `/rtkrcv_node/rtk_fix` 消息的 `gnss_time` 与 `header.stamp` 差值分布：
+```bash
+head -30 $DATA/seg_164931_165748/gnss/rtk_check.pos | grep -iE '%|time'
+ros2 bag info $DATA/seg_164931_165748/bag_lio   # 确认是否含 rtk_fix 话题
+```
+Expected: 若 `gnss_time` 为 GPST（≈ header.stamp + 18s）而模块按 UTC 插值 → 根因坐实为时间基准；记录结论。
+
+- [ ] **Step 2: gauge/bootstrap 排查**
+
+读 `run_rtkglobal_ct/glim.log` 中 `T_world_enu=` 的 bootstrap 输出，与 `gt/enu_origin.txt` 及 gt 轨迹首点对比：bootstrap 出的 gauge 若与 ENU 原点差几十米 → 根因为对齐错位；记录数值。
+
+- [ ] **Step 3: CT 模式排查（如前两步未坐实）**
+
+`run_ct_only` 日志的 "odom frames are not estimated in the IMU frame" 警告意味着 CT 变体输出系与 sub_mapping/global mapping 期望不一致——评估复跑是否直接改用 CPU 变体（轮 5 计划原路径）规避。
+
+- [ ] **Step 4: 诊断结论落盘**，明确复跑配置基线（CPU 变体 / 修正后的 stamp_source / time_offset），作为 Task 2 的输入。
+
 ### Task 1: `tage_at128` 配置集 + LiDAR-only 基线（run_C）
 
 **Files:**
 - Create: `$GLIM_WS/src/glim_underground/config/tage_at128/*.json`
 - 产出：`<segA>/validation_20261010/run_C/{traj_imu.txt,traj_lidar.txt,glim.log}`
 
-按轮 5 计划 Task 1 执行（设计决定 1/2/5 不变：从 `mid360/` 拷贝、CPU 变体、ENU 原点取 `gt/enu_origin.txt`），数值用一期 spec §3（`T_lidar_imu`、话题 `/at128/points` + `/cgi610/imu`）。**差异**：轮 5 计划里所有 `/home/steve` 路径换 `/home/boonraygrn`；产出目录名 `validation_20261010`。
+按轮 5 计划 Task 1 执行（设计决定 1/2/5 不变：从 `mid360/` 拷贝、ENU 原点取 `gt/enu_origin.txt`），但**里程计用纯 LiDAR 变体**（目标方案无 IMU，`imu_topic` 置空；数值用一期 spec §3：`T_lidar_gnss`、话题 `/at128/points`）。**差异**：轮 5 计划里所有 `/home/steve` 路径换 `/home/boonraygrn`；产出目录名 `validation_20261010`。
+
+- [ ] Step 0：确认 GLIM 纯 LiDAR 配置项（`config_odometry_cpu.json` 去 IMU 或专用纯 LiDAR 配置）并试跑 100 帧——关注 sub_mapping 是否刷 "requires IMU estimation" 警告及退化程度（对应 spec 风险表 D1 决策点，结果决定后续 run 用纯 LiDAR 还是 LIO 口径）
 
 - [ ] Step 1–4：按轮 5 计划 Task 1 的 Step 序列执行（配置集创建 → run_C 回放 → 基线轨迹对真值 RMSE 留档）
 - [ ] Step 5: Commit `config/tage_at128/`（只 add 该目录）
@@ -76,10 +104,11 @@ Expected: 全绿；若有红，先修再往下（记录红的原因）。
 
 **Files:**
 - Modify: `config/tage_at128/config_ros.json`（`extension_modules` 加 `librtk_global.so`）
+- Modify: `config/tage_at128/config_rtk_global.json`（按 Task 0.5 诊断结论修正 `stamp_source`/`time_offset`）
 - 产出：`<segA>/validation_20261010/run_A/`
 
 - [ ] Step 1–3：按轮 5 计划对应 Task 执行——回放段 A，断言日志含模块初始化行、`T_world_enu=`、`RtkFix` 计数 > 0、`factors_added > 0`（V1）
-- [ ] Step 4：轨迹对真值 RMSE 入结果表
+- [ ] Step 4：轨迹对真值 RMSE 入结果表，**并与 20261007 同配置结果对照**——若仍劣化，回到 Task 0.5 而非继续往下
 
 ### Task 3: §9.3 杆臂/时间偏移 + §9.2 系数标定 → run_A2 → V3/V4
 

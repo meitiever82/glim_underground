@@ -1,0 +1,363 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<style>
+@page { size: A4; margin: 18mm 16mm; }
+body { font-family: "Noto Sans CJK SC", sans-serif; font-size: 11pt; line-height: 1.65; color: #1a1a1a; }
+h1 { font-size: 17pt; border-bottom: 2px solid #333; padding-bottom: 6px; }
+h2 { font-size: 13.5pt; border-bottom: 1px solid #999; padding-bottom: 4px; margin-top: 1.6em; }
+table { border-collapse: collapse; width: 100%; font-size: 9.5pt; margin: 0.8em 0; }
+th, td { border: 1px solid #888; padding: 4px 8px; text-align: left; }
+th { background: #eee; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 9pt; background: #f3f3f3; padding: 1px 4px; }
+pre { background: #f6f6f6; padding: 10px; font-size: 8.5pt; overflow-x: auto; border: 1px solid #ddd; }
+blockquote { border-left: 3px solid #999; margin-left: 0; padding-left: 12px; color: #444; }
+img { max-width: 100%; }
+</style></head><body><h1 id="t_ins_lidar">紧耦合原型实验报告：T_ins_lidar 外参能否进图联合估计</h1>
+<ul>
+<li>日期：2026-10-19 / 2026-10-20（汇报版）</li>
+<li>作者：Hermes</li>
+<li>数据：红沙泉 seg_164931_165748（段 A，497s，良性矿区道路）+ seg_153000_153351（段 B，231s，转弯密集段，§3.5 跨段一致性）</li>
+<li>代码：<code>seg_164931_165748/kiss_icp_eval/round2_gtsam_fusion/tck_calib_v2.cpp</code>（单文件原型，GTSAM/iSAM2+批量LM 双后端）</li>
+<li>上游设计稿：<code>docs/gnss/specs/2026-10-19-tight-coupling-extrinsic-calib-prototype.md</code></li>
+<li>关联：调研报告 <code>kiss_icp_eval/REPORT_final.md</code> §2.8（松耦合在线标定失败）；GLIM 侧 gauge 调查 <code>2026-10-19-shared-gauge-and-fixed-bootstrap-design.md</code></li>
+</ul>
+<h2 id="0-tldr">0. TL;DR</h2>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>答案</th>
+<th>证据强度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>紧耦合（610 IMU 预积分 + GNSS 经外参 + 激光 between）值得做吗</td>
+<td><strong>值得，锁外参即目前最强前端</strong>：ATE：段 A 0.100m / 段 B 0.174m（转弯密集段对 KISS 提升 4.8 倍）；比调研松耦合最优（0.155）好 35%，比 GLIM+CT+RTK（0.325）好 3.2 倍；地图锐度达纯 LO 的 87%（厚度全场最薄 10.9cm）+ ATE 最优，<strong>双优</strong></td>
+<td>强（稳健性电池全过 + 跨段复现）</td>
+</tr>
+<tr>
+<td>T_ins_lidar 平移能在线估计吗</td>
+<td><strong>不能（此数据/此架构）</strong>：多模态，段 A 3 初值 3 解、段 B 2 初值 2 解，地图全部变差</td>
+<td>强（电池 B + 代数同构证明 + 跨段复现）</td>
+</tr>
+<tr>
+<td>T_ins_lidar 旋转能在线估计吗</td>
+<td><strong>不能可靠估计</strong>：各初值收敛的旋转互相矛盾（yaw -1.4° ~ -3.2°），批量误差最小的解 yaw=-5.8° 物理不可信</td>
+<td>中（电池 B 内部矛盾）</td>
+</tr>
+<tr>
+<td>为什么不行</td>
+<td><strong>610 杆臂混淆</strong>：GNSS 锚用 INSPVA 融合位置（610 内部已按其配置的天线杆臂补偿），610 杆臂误差与 T_ins_lidar 平移误差在观测方程中精确同构（仅差常号），图无法区分</td>
+<td>强（代数 + 数值验证）</td>
+</tr>
+</tbody>
+</table>
+<h2 id="1">1. 系统与方法</h2>
+<p>原型在调研 <code>lrtk_odometry_calib.cpp</code> 骨架上重写（v2，全双线性因子）：</p>
+<ul>
+<li><strong>状态</strong>：<code>X(k)=T_wl</code>（at128 雷达系位姿，ENU 世界）、<code>V(k)</code>（速度）、<code>B(k)</code>（IMU 零偏），10Hz 关键帧；共享变量 <code>T_li</code>（6DOF，标称 = tf_static 的 cgi610→at128 <code>[1.8868, -1.0062, -0.6516]</code> 旋转 I）</li>
+<li><strong>因子</strong>：</li>
+<li>IMU 预积分（610 原始 100Hz，自定义 <code>ImuExtrinsicFactor</code>：机体位姿 = <code>X·T_li⁻¹</code>，GTSAM 预积分 predict 后对 NavState 取 9 维误差）+ 零偏随机游走</li>
+<li>GNSS 位置（自定义 <code>GnssExtrinsicFactor</code>：<code>pred = (X·T_li⁻¹).translation()</code> vs INSPVA 位置，σ=5cm）——T_li 平移的绝对观测通道（航向变化旋转杆臂）</li>
+<li>激光 between（KISS 相对约束 + 逐帧信息矩阵，不经外参）</li>
+<li>求解：iSAM2 增量 / 批量 LM 双后端可切换</li>
+<li>评估：evo（associate 0.06s + SE3 对齐不缩放 + ATE 平移），参考 <code>gt/gt_at128_flu.tum</code></li>
+</ul>
+<p><strong>v1 教训（记录在案）</strong>：机体系状态 + between 共轭因子的初版里，T_il 平移只经 <code>R⁻¹(Rd-I)t</code> 的微分通道进图，10Hz 下 Rd≈I → 平移结构性不可观（E3 实证：估计值 = 初值+扰动，分毫不差）；gauge 三线性因子 <code>G·X·T_il</code> 在 iSAM2 下数值爆炸。v2 的全部双线性结构是为修这两个病。</p>
+<h2 id="2-a">2. 结果 A：锁外参紧耦合 = 当前最强前端（稳健）</h2>
+<p><strong>基线 ATE = 0.100m（med 0.045）</strong>。稳健性电池（全部锁外参）：</p>
+<table>
+<thead>
+<tr>
+<th>变体</th>
+<th>ATE</th>
+<th>判读</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>基线</td>
+<td>0.100</td>
+<td>✓</td>
+</tr>
+<tr>
+<td>外参 x +10cm</td>
+<td>0.139</td>
+<td>水平敏感</td>
+</tr>
+<tr>
+<td>外参 y +10cm</td>
+<td>0.136</td>
+<td>水平敏感</td>
+</tr>
+<tr>
+<td>外参 z +10cm</td>
+<td>0.100</td>
+<td>z 被对齐吸收（与调研 §2.8a 一致）</td>
+</tr>
+<tr>
+<td>外参水平 +20cm</td>
+<td>0.283</td>
+<td>≈线性：水平 1cm ≈ +0.4cm ATE</td>
+</tr>
+<tr>
+<td>无 IMU（消融）</td>
+<td>0.128</td>
+<td>IMU 贡献真实但温和（0.100→0.128）</td>
+</tr>
+<tr>
+<td>IMU 噪声 ×3</td>
+<td>0.104</td>
+<td>对噪声档位不敏感</td>
+</tr>
+<tr>
+<td>IMU 噪声 ÷3</td>
+<td>0.102</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table>
+<p>外参敏感性（水平 1cm→+0.4cm ATE）与调研松耦合（1cm→+0.5cm）同量级——外参精度仍是全局精度的硬约束，<strong>标到 5cm 内的工程要求不变</strong>。</p>
+<h2 id="25">2.5 建图精度：地图层指标（领导关注项）</h2>
+<p>把各方案的轨迹与 at128 原始帧缝合成地图，用<strong>结构层 MME</strong>（越低越锐）与<strong>地面厚度</strong>（1m² 柱内地面 z 标准差）量化建图质量——不止看轨迹 ATE：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>MME_struct ↓</th>
+<th>地面厚度(均值)</th>
+<th>ATE</th>
+<th>判读</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RTK 拼图（参考下界）</td>
+<td>-0.733</td>
+<td>21.0 cm</td>
+<td>—</td>
+<td>无配准，最糊</td>
+</tr>
+<tr>
+<td>KISS r200（纯 LO）</td>
+<td><strong>-1.115</strong></td>
+<td>11.6 cm</td>
+<td>0.573</td>
+<td>局部最锐、全局漂</td>
+</tr>
+<tr>
+<td>调研 GTSAM 融合</td>
+<td>-1.001</td>
+<td>11.9 cm</td>
+<td>0.155</td>
+<td>全局修好、锐度略损</td>
+</tr>
+<tr>
+<td>GLIM 一期基线</td>
+<td>-0.963</td>
+<td>11.9 cm</td>
+<td>0.324</td>
+<td>锐度中等、全局有偏</td>
+</tr>
+<tr>
+<td><strong>紧耦合锁外参</strong></td>
+<td>-0.966</td>
+<td><strong>10.9 cm</strong></td>
+<td><strong>0.100</strong></td>
+<td><strong>锐度达纯 LO 的 87% + 厚度最薄 + 全局最优</strong></td>
+</tr>
+<tr>
+<td>紧耦合自由外参</td>
+<td>-0.584</td>
+<td>23.5 cm</td>
+<td>0.242</td>
+<td><strong>比 RTK 拼图还糊</strong>——外参自由的地图层铁证</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>"厚度 ~10cm 是否偏大"的解答</strong>（实测分解，紧耦合锁外参地图按测距分段）：厚度随测距单调增长——8-14m 处 5.0cm、14-20m 6.1cm、20-30m 8.9cm、30-45m 10.8cm。几何模型完全解释：传感器高 ~2.3m，地面点为掠射（10m 处入射角 13°），AT128 测距噪声 ~2cm 投影到垂直方向放大 1/sin(θ) 倍（10m→8.9cm、20m→17.5cm）——<strong>单帧测距噪声 × 掠射角放大就是 10cm 量级的主要来源</strong>，多帧叠加再摊薄一部分。另一个参照：RTK 直拼（位姿=真值）厚度 21cm——同传感器"完美位姿"的地板值是 20cm 级，我们 10.9cm 已低于地板（配准平均掉了逐帧姿态噪声）。要进一步变薄只能靠制图后处理（体素均值/滑动窗口滤波），不属于定位精度问题。</p>
+<p><strong>口径已与调研报告完全对齐</strong>（帧级 0.3 体素质心缓存、MME 不降采样 + det&gt;1e-12、厚度带 z 窗预过滤 min30 点）。口径验证：本表"调研 GTSAM 融合"行 MME=-1.001 与调研报告 §2.3 逐位一致；厚度系统性偏高 ~2cm（质心实现细节），相对关系一致。</p>
+</blockquote>
+<p><img alt="六方案地图对比" src="2026-10-19-map-compare-6.png" /></p>
+<p>三个要点：</p>
+<ol>
+<li><strong>紧耦合锁外参：锐度损失最小 + 厚度最薄 + 全局最优</strong>。锐度 -0.966 达纯 LO 的 87%（调研融合是 90%，但它的 ATE 0.155 比我们差 55%）；厚度 10.9cm 全场最薄（比 KISS 还薄——IMU 把帧内运动畸变也约束住了）。调研当年"锐度换全局"的权衡在紧耦合下基本消失：IMU 把局部一致性焊死，GPS 可以放心收紧。</li>
+<li><strong>GLIM 的病灶定位</strong>：锐度 -0.963 与紧耦合相当，但 ATE 0.324——问题不在前端配准，在全局锚定链（gauge/杆臂/因子权重），与 §4 混淆分析和 gauge 调查结论互洽。</li>
+<li><strong>外参自由的地图层后果可量化</strong>：MME -0.584 比 RTK 直拼（-0.733）还差、厚度 23.5cm——自由外参不是"没收益"，是<strong>主动毁图</strong>。</li>
+</ol>
+<h2 id="3-b">3. 结果 B：外参自由 = 病态（证据链）</h2>
+<p><strong>B0 增量后端（iSAM2）</strong>：自由外参运行至 k≈2490（一半）处发散——T_li 平移指数爆炸（trace：k=2400 已到 ±200m，k=2600 达 -73000m）→ 线性系统奇异崩溃。</p>
+<p><strong>B1 批量 LM 多初值</strong>（T_li 标称 = (1.887, -1.006, -0.652)）：</p>
+<table>
+<thead>
+<tr>
+<th>初值扰动</th>
+<th>收敛 t</th>
+<th>收敛 rpy (°)</th>
+<th>目标函数</th>
+<th>地图 ATE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(0,0,0)</td>
+<td>(1.731, -1.574, -0.220)</td>
+<td>(-1.55, 1.43, -2.98)</td>
+<td>8.23e7</td>
+<td>0.242</td>
+</tr>
+<tr>
+<td>(+0.3,+0.2,-0.15)</td>
+<td>(2.577, -1.402, 0.362)</td>
+<td>(-2.01, 1.15, -1.39)</td>
+<td>6.45e7</td>
+<td>0.400</td>
+</tr>
+<tr>
+<td>(-0.3,-0.2,+0.15)</td>
+<td>(1.109, -1.947, -0.165)</td>
+<td>(-1.64, 1.34, -3.20)</td>
+<td>9.26e7</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>三个初值三个"解"，且初值扰动的解目标函数反而更低</strong>——多模态病态的确证。</p>
+<p><strong>B2/B3 可分性消融</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>变体</th>
+<th>收敛</th>
+<th>ATE</th>
+<th>判读</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只放水平平移（锁 z）</td>
+<td>t=(1.664, -1.533) 仍偏标称 0.58m</td>
+<td>0.227</td>
+<td>平移病态与 z 无关</td>
+</tr>
+<tr>
+<td>只放旋转（锁平移）</td>
+<td>rpy=(-2.03, 1.80, <strong>-5.80</strong>)°</td>
+<td>0.244</td>
+<td>旋转"收敛"到物理不可信值且目标函数最低（5.5e7）= 在拟合噪声</td>
+</tr>
+</tbody>
+</table>
+<p><strong>所有自由变体的地图都比锁外参差（0.227~0.400 vs 0.100）</strong>——外参自由不仅没有收益，还主动伤害地图。</p>
+<h2 id="35-e4-b">3.5 跨段一致性（E4）：段 B 实跑</h2>
+<p>段 B（seg_153000_153351，231s 转弯密集段）原料补齐：KISS 轨迹+信息矩阵由复刻脚本 <code>off_info_repl.py</code> 生成（信息矩阵 = 照 kiss-icp Registration.cpp 公式的点对点 JTJ，GM 核 <code>[t;r]</code> 序；<strong>段 A 验证：轨迹与调研文件逐位一致，信息矩阵同构、中位比值 0.641 已做刻度对齐</strong>）；IMU 抽自 bag <code>/cgi610/imu</code>（23101 条 @100Hz）。</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>段 A ATE</th>
+<th>段 B ATE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>KISS 纯 LO</td>
+<td>0.573</td>
+<td>0.828</td>
+</tr>
+<tr>
+<td>紧耦合锁外参</td>
+<td><strong>0.100</strong></td>
+<td><strong>0.174</strong></td>
+</tr>
+<tr>
+<td>紧耦合自由（批量）</td>
+<td>0.242</td>
+<td>0.287</td>
+</tr>
+<tr>
+<td>紧耦合自由（扰动初值批量）</td>
+<td>0.400</td>
+<td>0.303</td>
+</tr>
+</tbody>
+</table>
+<p>跨段结论全部复现：</p>
+<ol>
+<li><strong>锁外参在两段都最优</strong>（段 B 对 KISS 提升 4.8 倍，转弯密集段收益更大）；</li>
+<li><strong>自由外参在两段都更差且多模态</strong>：段 B 两初值平移收敛值互差 ~0.95m（(0.94,-1.88,-0.20) vs (1.89,-1.39,-0.61)）；旋转收敛到同一不可信值（(-18.2°, 8.0°, -10.7°) 两初值逐位相同）——在吸收系统性误差；</li>
+<li>段 B 批量目标函数（2e10）比段 A（8e7）大 250 倍——转弯密集段的 KISS 相对约束与 GNSS 锚冲突更大，自由外参被用来"吸收"冲突，病态更重。</li>
+</ol>
+<blockquote>
+<p>备注：GLIM 侧段 B 数据（f4 修复后 0.956）来自非确定性平台，未列入本表对比。</p>
+</blockquote>
+<p>段 B 地图层指标（同 §2.5 管线）：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>MME_struct ↓</th>
+<th>地面厚度(均值)</th>
+<th>ATE</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RTK 拼图（参考下界）</td>
+<td>-0.575</td>
+<td>21.8 cm</td>
+<td>—</td>
+</tr>
+<tr>
+<td>KISS r200（纯 LO）</td>
+<td><strong>-0.917</strong></td>
+<td>13.4 cm</td>
+<td>0.828</td>
+</tr>
+<tr>
+<td><strong>紧耦合锁外参</strong></td>
+<td>-0.877</td>
+<td><strong>11.6 cm</strong></td>
+<td><strong>0.174</strong></td>
+</tr>
+<tr>
+<td>紧耦合自由外参</td>
+<td>-0.503</td>
+<td>22.6 cm</td>
+<td>0.287</td>
+</tr>
+</tbody>
+</table>
+<p><img alt="段 B 四方案地图对比" src="2026-10-19-map-compare-segB.png" /></p>
+<p>段 B 的地图层模式与段 A 完全一致：<strong>锁外参锐度达纯 LO 的 96%、厚度最薄，自由外参退化到 RTK 直拼水平</strong>。</p>
+<h2 id="4-610">4. 根因：610 杆臂混淆（代数同构）</h2>
+<p>GNSS 因子的锚是 <strong>INSPVA 融合位置</strong>——610 内部已按其配置的天线杆臂补偿到 IMU 参考点。残差对两类误差的响应：</p>
+<ul>
+<li>T_li 平移误差 δ：<code>Δr(t) = -R_b(t)·δ</code>（R_b 机体姿态，R_li≈I 时 R_wl·R_liᵀ = R_b）</li>
+<li>610 杆臂配置误差 δ：<code>Δr(t) = +R_b(t)·δ</code>（INSPVA 位置带 -R_b·δ）</li>
+</ul>
+<p><strong>仅差常号，时间序列形状完全一致</strong>（真实轨迹数值验证：三种随机 δ 下两签名之和恒为 0）。图无法区分"外参错了"和"610 杆臂配置错了"。唯一可区分通道是 R_li≠I 的二阶小量。这就是多模态的来源，也解释了调研"任何初值收敛到同一错值"的观测——那条链路上的错值吸收了 610 杆臂误差。</p>
+<p>注：调研的根因归因（LO 姿态漂移淹没信号）与本混淆<strong>并存且独立</strong>——我们的紧耦合消除了姿态漂移（IMU+GNSS 锚定），混淆仍在。这是比调研更深一层的结论。</p>
+<h2 id="5">5. 结论与路线建议</h2>
+<ol>
+<li><strong>T_ins_lidar 平移在线标定在"GNSS 锚经 INSPVA"的架构下结构性不可行</strong>（610 杆臂混淆）。要解混淆，锚必须绕过 610 的内部补偿：用<strong>原始 RTK 位置（rtkrcv/板卡直出，未经 INS 杆臂补偿）</strong>直接锚雷达系——这正是 GLIM 侧 rtk_odometry/rtk_global 的做法，其杆臂残差 0.2m 两段验证是干净的。两条路线在"610 混淆"上形成互证。</li>
+<li><strong>旋转在线估计需要更高质量的激励或独立姿态观测</strong>（双天线航向原始量、或显著坡道段），当前数据上批量解物理不可信。</li>
+<li><strong>工程落地</strong>：外参维持离线标定（<code>estimate_lever_arm</code> 残差法 / tf_static + 复核），在线监控残差即可——与调研建议一致，现在有了双重证据。</li>
+<li><strong>紧耦合前端值得独立推进</strong>（与外参问题无关）：锁外参即 0.100m，是目前所有方案里最好的建图前端。建议作为二期"RTK 因子进内层"的替代/先行方案评估——把 GLIM 的工程件（订阅、dump、viewer）嫁接到这个图结构上，或反向把该结构做成 GLIM 的 odometry 模块。</li>
+</ol>
+<h2 id="6">6. 复现</h2>
+<pre><code class="language-bash">cd seg_164931_165748/kiss_icp_eval/round2_gtsam_fusion
+g++ -std=c++17 -O2 -I/usr/local/include -I/usr/include/eigen3 tck_calib_v2.cpp -o tck_calib_v2 -L/usr/local/lib -lgtsam -lboost_system -lboost_serialization -ltbb
+# 锁外参基线
+./tck_calib_v2 off_r200i.txt off_r200i_info.txt ../../gt/gt_cgi610_imu_flu.tum imu_cgi610.csv out_lock 2 0.2 0.1 1
+# 自由外参(批量)  BATCH=1 ./tck_calib_v2 ... out_free 2 0.2 0.1 0 [px py pz]
+# 消融: NOIMU=1 / IMU_ACC_SCALE=3 IMU_GYR_SCALE=3
+</code></pre>
+<p>IMU 数据抽取：<code>extract_imu.py</code>（bag <code>/cgi610/imu</code> → csv，49731 条 @100Hz）。</p>
+<h2 id="7">7. 遗留与限制</h2>
+<ul>
+<li>~~跨段一致性（E4）~~ <strong>已完成（§3.5）</strong>：段 B 全指标复现段 A 结论。KISS 段 B 原料由复刻脚本生成（段 A 轨迹逐位一致验证通过；信息矩阵自算，已做刻度对齐 1.56×）。</li>
+<li>610 IMU 与 at128 的设备管线延迟差（串口 vs 网口）未标定，毫秒级偏差会给外参估计带来速度相关的伪信号——本报告的"不可行"结论不依赖它（混淆是结构性的），但若未来解混淆后仍要多模态排查，这是第一嫌疑。</li>
+<li>610 IMU 的 Allan 参数未实测，噪声档位用的估计值（稳健性电池显示 ±3× 内结论不变）。</li>
+</ul></body></html>
