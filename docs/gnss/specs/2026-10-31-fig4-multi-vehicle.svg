@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <defs>
+    <g id="sat5">
+      <rect x="-7" y="-6" width="14" height="11" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.8"/>
+      <rect x="-24" y="-4" width="14" height="8" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.8"/>
+      <rect x="10" y="-4" width="14" height="8" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.8"/>
+    </g>
+    <g id="car5">
+      <rect x="-44" y="-16" width="88" height="30" rx="8" fill="#dceaf7" stroke="#3a7ca5" stroke-width="2"/>
+      <rect x="-28" y="-34" width="44" height="20" rx="6" fill="#dceaf7" stroke="#3a7ca5" stroke-width="2"/>
+      <circle cx="-24" cy="16" r="9" fill="#fff" stroke="#3a7ca5" stroke-width="2"/>
+      <circle cx="24" cy="16" r="9" fill="#fff" stroke="#3a7ca5" stroke-width="2"/>
+      <circle cx="0" cy="-40" r="4" fill="#c94f42"/>
+      <line x1="0" y1="-36" x2="0" y2="-34" stroke="#3a7ca5" stroke-width="2"/>
+    </g>
+  </defs>
+
+  <rect width="1400" height="800" fill="#ffffff"/>
+  <text x="700" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#111">v4 车队协同定位:多车共享 T_EW 同图联合估计,遮挡/弱信号车借邻车观测链</text>
+
+  <!-- 图例 -->
+  <rect x="30" y="58" width="240" height="96" rx="6" fill="#fff" stroke="#999"/>
+  <text x="44" y="78" font-size="12" font-weight="bold">图例</text>
+  <line x1="44" y1="96" x2="76" y2="96" stroke="#c94f42" stroke-width="1.8" stroke-dasharray="6,4"/>
+  <text x="84" y="100" font-size="11">基站/卫星链路(红)</text>
+  <line x1="44" y1="116" x2="76" y2="116" stroke="#7d5ba6" stroke-width="2.4" stroke-dasharray="8,5"/>
+  <text x="84" y="120" font-size="11">车车 DD(紫,相对 cm~dm)</text>
+  <line x1="44" y1="136" x2="76" y2="136" stroke="#999" stroke-width="1.6" stroke-dasharray="3,4"/>
+  <text x="84" y="140" font-size="11">链路弱/断(灰)</text>
+
+  <!-- 卫星 -->
+  <use href="#sat5" transform="translate(360,95) rotate(-12)"/>
+  <use href="#sat5" transform="translate(620,75) rotate(5)"/>
+  <use href="#sat5" transform="translate(880,85) rotate(10)"/>
+  <use href="#sat5" transform="translate(1150,100) rotate(14)"/>
+  <text x="760" y="60" text-anchor="middle" font-size="12" fill="#a83a30">共视卫星(逐星原始观测)</text>
+
+  <!-- 卫星信号线:开阔车(强) -->
+  <g stroke="#c94f42" stroke-width="1.8" stroke-dasharray="7,5" fill="none">
+    <path d="M 356 108 L 342 540"/>
+    <path d="M 618 88 L 535 540"/>
+    <path d="M 878 98 L 845 540"/>
+  </g>
+  <!-- 卫星→车D 弱(破碎站挡半边天) -->
+  <path d="M 348 104 L 160 545" stroke="#999" stroke-width="1.6" stroke-dasharray="3,4" fill="none"/>
+  <text x="190" y="320" font-size="12" fill="#888">(弱)</text>
+  <!-- 卫星→车B 被排土场遮挡 -->
+  <path d="M 1146 112 L 1085 370" stroke="#999" stroke-width="1.6" stroke-dasharray="3,4" fill="none"/>
+  <text x="1105" y="352" font-size="20" fill="#c06a60">✗</text>
+  <text x="960" y="330" font-size="12" fill="#c06a60">卫星 → 车B 被遮挡</text>
+
+  <!-- 破碎站 -->
+  <rect x="60" y="490" width="130" height="130" fill="#d8d8d8" stroke="#999" stroke-width="2"/>
+  <rect x="80" y="462" width="90" height="30" fill="#c8c8c8" stroke="#999" stroke-width="2"/>
+  <text x="125" y="562" text-anchor="middle" font-size="13" fill="#666">破碎站</text>
+
+  <!-- 排土场 -->
+  <path d="M 950 620 L 1045 380 L 1185 380 L 1280 620 Z" fill="#e8e0d0" stroke="#b8ab8a" stroke-width="2"/>
+  <text x="1115" y="500" text-anchor="middle" font-size="14" fill="#8a7a55">排土场(遮挡区)</text>
+
+  <!-- 地面 -->
+  <line x1="30" y1="620" x2="1370" y2="620" stroke="#8a8a6a" stroke-width="3"/>
+
+  <!-- 固定基站 -->
+  <g>
+    <line x1="690" y1="556" x2="690" y2="592" stroke="#666" stroke-width="3"/>
+    <circle cx="690" cy="552" r="5" fill="#c94f42"/>
+    <line x1="690" y1="592" x2="670" y2="618" stroke="#666" stroke-width="3"/>
+    <line x1="690" y1="592" x2="710" y2="618" stroke="#666" stroke-width="3"/>
+    <line x1="690" y1="592" x2="690" y2="620" stroke="#666" stroke-width="3"/>
+    <text x="690" y="664" text-anchor="middle" font-size="12.5" fill="#555" font-weight="bold">固定基站(绝对锚)</text>
+  </g>
+
+  <!-- 基站 DD 链路(压低、走平) -->
+  <g stroke="#c94f42" stroke-width="1.6" stroke-dasharray="6,4" fill="none">
+    <path d="M 676 556 Q 510 536 366 552"/>
+    <path d="M 684 556 Q 608 540 548 552"/>
+    <path d="M 700 556 Q 772 536 826 552"/>
+    <path d="M 674 558 Q 400 528 178 552"/>
+  </g>
+  <path d="M 706 556 Q 950 522 1134 550" stroke="#999" stroke-width="1.6" stroke-dasharray="3,5" fill="none"/>
+  <text x="948" y="545" font-size="11.5" fill="#999">弱/断</text>
+
+  <!-- 车车 DD 链路(紫色,抬高) -->
+  <g stroke="#7d5ba6" stroke-width="2.4" stroke-dasharray="8,5" fill="none">
+    <path d="M 185 542 Q 250 445 315 542"/>
+    <path d="M 385 542 Q 440 445 505 542"/>
+    <path d="M 575 542 Q 700 405 815 542"/>
+    <path d="M 885 542 Q 1010 395 1125 542"/>
+  </g>
+  <text x="700" y="390" text-anchor="middle" font-size="12.5" fill="#5f4380" font-weight="bold">车车 DD(相对 cm~dm 级)</text>
+  <text x="1005" y="378" text-anchor="middle" font-size="12.5" fill="#5f4380" font-weight="bold">借邻车观测链</text>
+
+  <!-- 五台车 -->
+  <use href="#car5" transform="translate(150,580)"/>
+  <use href="#car5" transform="translate(340,580)"/>
+  <use href="#car5" transform="translate(530,580)"/>
+  <use href="#car5" transform="translate(840,580)"/>
+  <use href="#car5" transform="translate(1150,580)"/>
+
+  <!-- 车辆标注 -->
+  <g font-size="11.5" text-anchor="middle">
+    <rect x="70" y="640" width="170" height="46" rx="7" fill="#fdf0ee" stroke="#c94f42" stroke-width="1.4"/>
+    <text x="150" y="659" fill="#a83a30" font-weight="bold">车D:弱信号</text>
+    <text x="150" y="677" fill="#a83a30">浮动/单点解降权</text>
+
+    <rect x="255" y="640" width="170" height="46" rx="7" fill="#eaf6f3" stroke="#2a9d8f" stroke-width="1.4"/>
+    <text x="340" y="659" fill="#1d7a6f" font-weight="bold">车A:v3 全套因子</text>
+    <text x="340" y="677" fill="#1d7a6f">基站 DD + IMU + 激光</text>
+
+    <rect x="445" y="640" width="170" height="46" rx="7" fill="#eaf6f3" stroke="#2a9d8f" stroke-width="1.4"/>
+    <text x="530" y="659" fill="#1d7a6f" font-weight="bold">车E:v3 全套因子</text>
+    <text x="530" y="677" fill="#1d7a6f">基站 DD + IMU + 激光</text>
+
+    <rect x="755" y="640" width="170" height="46" rx="7" fill="#eaf6f3" stroke="#2a9d8f" stroke-width="1.4"/>
+    <text x="840" y="659" fill="#1d7a6f" font-weight="bold">车C:v3 全套因子</text>
+    <text x="840" y="677" fill="#1d7a6f">基站 DD + IMU + 激光</text>
+
+    <rect x="1065" y="640" width="180" height="46" rx="7" fill="#fdf0ee" stroke="#c94f42" stroke-width="1.4"/>
+    <text x="1150" y="659" fill="#a83a30" font-weight="bold">车B:遮挡,基站/卫星断</text>
+    <text x="1150" y="677" fill="#a83a30">借车C 链,轨迹无跳变</text>
+  </g>
+
+  <!-- 底部说明带 -->
+  <rect x="180" y="716" width="1040" height="52" rx="10" fill="#fdf9ef" stroke="#b8a05a" stroke-width="1.6"/>
+  <text x="700" y="739" text-anchor="middle" font-size="13.5" fill="#8a7333" font-weight="bold">多车共享 T_EW · 状态同图联合估计 · 车队相对位置直接读出(防撞/编队)</text>
+  <text x="700" y="760" text-anchor="middle" font-size="12" fill="#8a7333">单车链路断开时静默退化为 v3 单车估计,恢复后自动重新加入联合图</text>
+</svg>

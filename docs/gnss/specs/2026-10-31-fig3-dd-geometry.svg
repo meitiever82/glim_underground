@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 760" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <defs>
+    <g id="sat2">
+      <rect x="-7" y="-6" width="14" height="11" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.8"/>
+      <rect x="-24" y="-4" width="14" height="8" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.8"/>
+      <rect x="10" y="-4" width="14" height="8" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.8"/>
+    </g>
+    <marker id="arr2" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#c94f42"/>
+    </marker>
+  </defs>
+
+  <rect width="1160" height="760" fill="#ffffff"/>
+  <text x="580" y="36" text-anchor="middle" font-size="20" font-weight="bold" fill="#222">基站双差(DD)几何:流动站 × 基站 × 主星 m × 副星 n</text>
+
+  <!-- 坐标系关系(左上角小注) -->
+  <rect x="40" y="58" width="330" height="76" rx="8" fill="#f7f7f7" stroke="#ccc"/>
+  <text x="56" y="82" font-size="12.5" fill="#555">坐标系链:ECEF(卫星/基站坐标已知)</text>
+  <text x="56" y="102" font-size="12.5" fill="#555">↔ <tspan font-weight="bold" fill="#8a7333">T_EW(图内在线估计)</tspan> ↔ 局部系(车体/地图)</text>
+  <text x="56" y="122" font-size="12.5" fill="#555">天线相位中心 = 机体系经已知杆臂 T_ant(p)</text>
+
+  <!-- 卫星 -->
+  <use href="#sat2" transform="translate(300,110) rotate(-12)"/>
+  <text x="300" y="150" text-anchor="middle" font-size="14" fill="#a83a30" font-weight="bold">主星 m(连续可见最长)</text>
+  <use href="#sat2" transform="translate(830,92) rotate(10)"/>
+  <text x="830" y="132" text-anchor="middle" font-size="14" fill="#a83a30" font-weight="bold">副星 n</text>
+
+  <!-- 信号线:主星 -->
+  <path d="M 296 122 L 296 496" stroke="#c94f42" stroke-width="1.8" stroke-dasharray="7,5" marker-end="url(#arr2)"/>
+  <text x="262" y="310" font-size="13" fill="#a83a30" text-anchor="end">ρ_roverᵐ</text>
+  <path d="M 312 118 Q 600 260 806 496" stroke="#c94f42" stroke-width="1.8" stroke-dasharray="7,5" fill="none" marker-end="url(#arr2)"/>
+  <text x="586" y="252" font-size="13" fill="#a83a30">ρ_baseᵐ</text>
+
+  <!-- 信号线:副星 -->
+  <path d="M 818 104 Q 520 300 306 500" stroke="#e08a80" stroke-width="1.8" stroke-dasharray="7,5" fill="none" marker-end="url(#arr2)"/>
+  <text x="520" y="330" font-size="13" fill="#c06a60">ρ_roverⁿ</text>
+  <path d="M 834 104 L 834 496" stroke="#e08a80" stroke-width="1.8" stroke-dasharray="7,5" marker-end="url(#arr2)"/>
+  <text x="850" y="310" font-size="13" fill="#c06a60">ρ_baseⁿ</text>
+
+  <!-- 地面 -->
+  <line x1="40" y1="576" x2="1120" y2="576" stroke="#8a8a6a" stroke-width="3"/>
+  <g stroke="#8a8a6a" stroke-width="1.4">
+    <line x1="80" y1="576" x2="66" y2="590"/><line x1="160" y1="576" x2="146" y2="590"/>
+    <line x1="240" y1="576" x2="226" y2="590"/><line x1="320" y1="576" x2="306" y2="590"/>
+    <line x1="400" y1="576" x2="386" y2="590"/><line x1="480" y1="576" x2="466" y2="590"/>
+    <line x1="560" y1="576" x2="546" y2="590"/><line x1="640" y1="576" x2="626" y2="590"/>
+    <line x1="720" y1="576" x2="706" y2="590"/><line x1="800" y1="576" x2="786" y2="590"/>
+    <line x1="880" y1="576" x2="866" y2="590"/><line x1="960" y1="576" x2="946" y2="590"/>
+    <line x1="1040" y1="576" x2="1026" y2="590"/>
+  </g>
+
+  <!-- 流动站(车) -->
+  <g>
+    <rect x="256" y="530" width="88" height="34" rx="8" fill="#dceaf7" stroke="#3a7ca5" stroke-width="2"/>
+    <rect x="272" y="512" width="44" height="22" rx="6" fill="#dceaf7" stroke="#3a7ca5" stroke-width="2"/>
+    <circle cx="276" cy="568" r="9" fill="#fff" stroke="#3a7ca5" stroke-width="2"/>
+    <circle cx="324" cy="568" r="9" fill="#fff" stroke="#3a7ca5" stroke-width="2"/>
+    <circle cx="296" cy="500" r="4" fill="#c94f42"/>
+    <line x1="296" y1="504" x2="296" y2="512" stroke="#3a7ca5" stroke-width="2"/>
+    <text x="300" y="612" text-anchor="middle" font-size="14" fill="#2b5f82" font-weight="bold">流动站 rover(位姿 p,待估)</text>
+  </g>
+
+  <!-- 基站(三脚架) -->
+  <g>
+    <line x1="834" y1="500" x2="834" y2="540" stroke="#666" stroke-width="3"/>
+    <circle cx="834" cy="496" r="5" fill="#c94f42"/>
+    <line x1="834" y1="540" x2="812" y2="574" stroke="#666" stroke-width="3"/>
+    <line x1="834" y1="540" x2="856" y2="574" stroke="#666" stroke-width="3"/>
+    <line x1="834" y1="540" x2="834" y2="576" stroke="#666" stroke-width="3"/>
+    <text x="834" y="612" text-anchor="middle" font-size="14" fill="#555" font-weight="bold">固定基站(x_base 已知)</text>
+  </g>
+
+  <!-- 基线标注 -->
+  <path d="M 348 552 Q 580 528 806 546" stroke="#888" stroke-width="1.4" stroke-dasharray="4,4" fill="none"/>
+  <text x="580" y="516" text-anchor="middle" font-size="12.5" fill="#777">短基线 → 大气延迟/星历误差近似共模</text>
+
+  <!-- 公式面板 -->
+  <rect x="60" y="648" width="1040" height="96" rx="10" fill="#fdf9ef" stroke="#e0d3ae" stroke-width="1.5"/>
+  <text x="84" y="678" font-size="14.5" fill="#333" font-weight="bold">DD_观测 = (ρ_roverⁿ − ρ_baseⁿ) − (ρ_roverᵐ − ρ_baseᵐ)</text>
+  <text x="84" y="704" font-size="13.5" fill="#555">DD_预测 = (‖sⁿ − T_EW·T_ant(p)‖ − ‖sⁿ − x_base‖) − (‖sᵐ − T_EW·T_ant(p)‖ − ‖sᵐ − x_base‖)</text>
+  <text x="84" y="730" font-size="13" fill="#8a7333">双差消掉:卫星钟差 · 接收机钟差 · 硬件延迟 · 短基线大气延迟;残余由 σ(0.5m 起步)+ Huber 核吸收</text>
+</svg>

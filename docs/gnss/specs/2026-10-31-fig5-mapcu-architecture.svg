@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 830" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <rect width="1400" height="830" fill="#ffffff"/>
+  <text x="700" y="42" text-anchor="middle" font-size="24" font-weight="bold" fill="#111">MapCU 软件架构(现状:RTK 轨迹直拼点云)</text>
+
+  <!-- ===== 泳道背景 ===== -->
+  <rect x="25"   y="60" width="230" height="540" fill="#BBDEFB" opacity="0.5"/>
+  <rect x="265"  y="60" width="210" height="540" fill="#F5F5DC" opacity="0.7"/>
+  <rect x="485"  y="60" width="330" height="540" fill="#FFE0B2" opacity="0.55"/>
+  <rect x="825"  y="60" width="270" height="540" fill="#E8F5E9" opacity="0.8"/>
+  <rect x="1105" y="60" width="270" height="540" fill="#FADADD" opacity="0.55"/>
+  <rect x="485"  y="610" width="890" height="70"  fill="#C8E6C9" opacity="0.55"/>
+
+  <g font-size="14" fill="#555" text-anchor="middle">
+    <text x="140" y="84">传感器层</text>
+    <text x="370" y="84">预处理</text>
+    <text x="650" y="84">建图核心(现状)</text>
+    <text x="960" y="84">地图后处理</text>
+    <text x="1240" y="84">交互 / 上报</text>
+    <text x="930" y="636" font-weight="bold" fill="#2d6a33">升级路径:RTK 从"唯一依据"降级为质量感知全局约束之一 → GLIM 因子图建图(见 GLIM 架构页)</text>
+  </g>
+
+  <!-- ===== Z1 传感器 ===== -->
+  <g font-size="11" fill="#222">
+    <rect x="40" y="110" width="200" height="74" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="140" y="132" text-anchor="middle" font-size="12.5" font-weight="bold">激光雷达(AT128)</text>
+    <text x="52" y="154">点云 10Hz, 逐点时间戳</text>
+    <text x="52" y="174" fill="#a83a30">平台组 mcap 版缺点时间戳</text>
+
+    <rect x="40" y="200" width="200" height="96" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="140" y="222" text-anchor="middle" font-size="12.5" font-weight="bold">组合导航(CGI610)</text>
+    <text x="52" y="244">INSPVA 10Hz(融合位置)</text>
+    <text x="52" y="264">IMU 原始值 100Hz</text>
+    <text x="52" y="284" fill="#a83a30">内部解算 → 杆臂混淆源</text>
+
+    <rect x="40" y="306" width="200" height="54" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="140" y="328" text-anchor="middle" font-size="12.5" font-weight="bold">RTK 差分链路</text>
+    <text x="52" y="348">rtkrcv: FIX/FLOAT/单点</text>
+
+    <rect x="40" y="370" width="200" height="54" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="140" y="392" text-anchor="middle" font-size="12.5" font-weight="bold">轮式编码器</text>
+    <text x="52" y="412">轮速(辅助/校验)</text>
+  </g>
+
+  <!-- ===== Z2 预处理 ===== -->
+  <g font-size="11" fill="#222">
+    <rect x="280" y="130" width="180" height="120" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="370" y="152" text-anchor="middle" font-size="12.5" font-weight="bold">时间同步与数据对齐</text>
+    <text x="292" y="174">按时间戳对齐点云/轨迹</text>
+    <text x="292" y="194" fill="#a83a30">几十 ms 偏差 @5m/s</text>
+    <text x="292" y="212" fill="#a83a30">→ 10~25cm 位置误差</text>
+    <text x="292" y="232" fill="#a83a30">(与 0.25m 指标同量级)</text>
+
+    <rect x="280" y="270" width="180" height="60" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="370" y="292" text-anchor="middle" font-size="12.5" font-weight="bold">自检模块</text>
+    <text x="292" y="312">数据有效性 / 完整性检查</text>
+  </g>
+
+  <!-- ===== Z3 建图核心(现状) ===== -->
+  <g font-size="11" fill="#222">
+    <rect x="500" y="110" width="300" height="130" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="650" y="132" text-anchor="middle" font-size="12.5" font-weight="bold">RTK 轨迹直拼(现状)</text>
+    <text x="512" y="154">1. INSPVA 轨迹插值到帧时刻</text>
+    <text x="512" y="174">2. 逐帧点云按位姿变换后叠加成图</text>
+    <text x="512" y="194">3. 轨迹是唯一依据</text>
+    <text x="512" y="214" fill="#a83a30" font-weight="bold">无帧间配准 · 无回环 · 无校正回路</text>
+
+    <rect x="500" y="258" width="300" height="190" rx="8" fill="#fff" stroke="#c94f42" stroke-width="1.6"/>
+    <text x="650" y="280" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#a83a30">分层误差源(全部来自轨迹)</text>
+    <text x="512" y="302">① 解质量波动: FIX/FLOAT/单点</text>
+    <text x="512" y="320">   精度差 2~3 个数量级</text>
+    <text x="512" y="340">② 时间同步偏差(几十 ms 级)</text>
+    <text x="512" y="360">③ 杆臂/外参未标定: 转弯段</text>
+    <text x="512" y="378">   1~3m 杆臂 → 米级残差</text>
+    <text x="512" y="398">④ 帧间几何信息完全未利用,</text>
+    <text x="512" y="416">   误差单调累积、无自修复</text>
+    <text x="512" y="438" fill="#a83a30">结论: 不改架构难稳定达标</text>
+  </g>
+
+  <!-- ===== Z4 后处理 ===== -->
+  <g font-size="11" fill="#222">
+    <rect x="840" y="110" width="240" height="150" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="960" y="132" text-anchor="middle" font-size="12.5" font-weight="bold">边界提取管线</text>
+    <text x="852" y="154">1. 边界提取</text>
+    <text x="852" y="174">2. 左右边界区分</text>
+    <text x="852" y="194">3. 边界离群点滤波</text>
+    <text x="852" y="214">4. 拟合边界线</text>
+    <text x="852" y="234">5. 点云地图离线编辑</text>
+
+    <rect x="840" y="280" width="240" height="80" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="960" y="302" text-anchor="middle" font-size="12.5" font-weight="bold">分层评估(map_quality)</text>
+    <text x="852" y="324">指标: 点云分层 80% 比例</text>
+    <text x="852" y="344">&lt; 0.25m(9 月目标)</text>
+  </g>
+
+  <!-- ===== Z5 交互/上报 ===== -->
+  <g font-size="11" fill="#222">
+    <rect x="1120" y="110" width="240" height="110" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="1240" y="132" text-anchor="middle" font-size="12.5" font-weight="bold">HMI 前后端</text>
+    <text x="1132" y="154">命令获取/解析</text>
+    <text x="1132" y="174">输出: 位置/姿态/速度/TF/质量</text>
+    <text x="1132" y="194">故障上报 · 状态上报</text>
+
+    <rect x="1120" y="240" width="240" height="80" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="1240" y="262" text-anchor="middle" font-size="12.5" font-weight="bold">HDMS</text>
+    <text x="1132" y="284">边界地图上传</text>
+    <text x="1132" y="304">文件打包 / 上传闭环</text>
+  </g>
+
+  <!-- ===== 数据流箭头 ===== -->
+  <defs>
+    <marker id="ar6" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 Z" fill="#222"/>
+    </marker>
+  </defs>
+  <g stroke="#222" stroke-width="1.8" fill="none" marker-end="url(#ar6)">
+    <path d="M 240 180 L 276 180"/>
+    <path d="M 460 180 L 496 175"/>
+    <path d="M 800 175 L 836 175"/>
+    <path d="M 1080 175 L 1116 165"/>
+    <path d="M 1080 300 L 1116 285"/>
+  </g>
+  <path d="M 650 240 L 650 258" stroke="#c94f42" stroke-width="1.8" fill="none" marker-end="url(#ar6)"/>
+
+  <!-- ===== 图例 ===== -->
+  <rect x="40" y="640" width="400" height="120" rx="6" fill="#fff" stroke="#999"/>
+  <text x="54" y="662" font-size="12.5" font-weight="bold">图例</text>
+  <line x1="54" y1="682" x2="90" y2="682" stroke="#222" stroke-width="1.8"/>
+  <text x="98" y="686" font-size="11">数据流(采集 → 建图 → 后处理 → 上报)</text>
+  <rect x="54" y="698" width="20" height="14" rx="4" fill="#fff" stroke="#222"/>
+  <text x="98" y="710" font-size="11">模块(白底圆角框)</text>
+  <rect x="54" y="720" width="20" height="14" rx="4" fill="#fff" stroke="#c94f42"/>
+  <text x="98" y="732" font-size="11">红字/红框 = 现状痛点(分层根因)</text>
+  <rect x="54" y="742" width="20" height="14" fill="#C8E6C9"/>
+  <text x="98" y="754" font-size="11">绿带 = 已定升级路径</text>
+  <text x="1350" y="812" text-anchor="end" font-size="10.5" fill="#999">MapCU × GLIM · 2026-10-31</text>
+</svg>

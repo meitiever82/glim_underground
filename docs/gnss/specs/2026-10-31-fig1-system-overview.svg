@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 630" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <rect width="1300" height="630" fill="#ffffff"/>
+  <text x="650" y="36" text-anchor="middle" font-size="20" font-weight="bold" fill="#222">最终系统形态:原始观测紧耦合估计器(v3)— 数据链路基于 gnss_bringup</text>
+
+  <!-- 区域底色 -->
+  <rect x="25" y="66" width="245" height="440" rx="10" fill="#fafafa" stroke="#ddd"/>
+  <rect x="305" y="66" width="325" height="440" rx="10" fill="#fafafa" stroke="#ddd"/>
+  <rect x="665" y="66" width="315" height="440" rx="10" fill="#fdf9ef" stroke="#e0d3ae"/>
+  <rect x="1015" y="66" width="260" height="440" rx="10" fill="#fafafa" stroke="#ddd"/>
+  <g font-size="15" font-weight="bold" fill="#555" text-anchor="middle">
+    <text x="147" y="92">数据源</text>
+    <text x="467" y="92">预处理</text>
+    <text x="822" y="92">因子图优化(估计器)</text>
+    <text x="1145" y="92">输出与评估</text>
+  </g>
+
+  <!-- ===== 数据源 ===== -->
+  <g font-size="12.5">
+    <rect x="45" y="110" width="205" height="66" rx="7" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.6"/>
+    <text x="147" y="136" text-anchor="middle" fill="#a83a30" font-weight="bold">流动站 rangecmpb</text>
+    <text x="147" y="156" text-anchor="middle" fill="#a83a30">伪距/载波/多普勒/星历</text>
+
+    <rect x="45" y="196" width="205" height="66" rx="7" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.6"/>
+    <text x="147" y="222" text-anchor="middle" fill="#a83a30" font-weight="bold">基站 RTCM 流</text>
+    <text x="147" y="242" text-anchor="middle" fill="#a83a30">rtkrcv 差分链路(已部署)</text>
+
+    <rect x="45" y="282" width="205" height="66" rx="7" fill="#d9f2ec" stroke="#2a9d8f" stroke-width="1.6"/>
+    <text x="147" y="308" text-anchor="middle" fill="#1d7a6f" font-weight="bold">610 IMU 100Hz</text>
+    <text x="147" y="328" text-anchor="middle" fill="#1d7a6f">陀螺+加计原始值</text>
+
+    <rect x="45" y="368" width="205" height="66" rx="7" fill="#dceaf7" stroke="#3a7ca5" stroke-width="1.6"/>
+    <text x="147" y="394" text-anchor="middle" fill="#2b5f82" font-weight="bold">激光点云 10Hz</text>
+    <text x="147" y="414" text-anchor="middle" fill="#2b5f82">KISS 前端</text>
+  </g>
+
+  <!-- ===== 预处理 ===== -->
+  <g font-size="12.5">
+    <rect x="325" y="110" width="285" height="54" rx="7" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.6"/>
+    <text x="467" y="133" text-anchor="middle" fill="#a83a30" font-weight="bold">rangecmpb 解析(RTKLIB 解码)</text>
+    <text x="467" y="152" text-anchor="middle" fill="#a83a30">→ 逐历元观测 csv</text>
+
+    <rect x="325" y="186" width="285" height="54" rx="7" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.6"/>
+    <text x="467" y="209" text-anchor="middle" fill="#a83a30" font-weight="bold">DD 配对(基准星选择)</text>
+    <text x="467" y="228" text-anchor="middle" fill="#a83a30">+ 粗差剔除(Huber 核)</text>
+
+    <rect x="325" y="262" width="285" height="54" rx="7" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.6"/>
+    <text x="467" y="285" text-anchor="middle" fill="#a83a30" font-weight="bold">T_EW 初始化</text>
+    <text x="467" y="304" text-anchor="middle" fill="#a83a30">首段伪距 SPP 粗定</text>
+
+    <rect x="325" y="348" width="285" height="54" rx="7" fill="#d9f2ec" stroke="#2a9d8f" stroke-width="1.6"/>
+    <text x="467" y="371" text-anchor="middle" fill="#1d7a6f" font-weight="bold">IMU 预积分</text>
+    <text x="467" y="390" text-anchor="middle" fill="#1d7a6f">经 T_li(锁死,离线标定)</text>
+
+    <rect x="325" y="424" width="285" height="54" rx="7" fill="#dceaf7" stroke="#3a7ca5" stroke-width="1.6"/>
+    <text x="467" y="447" text-anchor="middle" fill="#2b5f82" font-weight="bold">KISS 相对约束</text>
+    <text x="467" y="466" text-anchor="middle" fill="#2b5f82">+ 逐帧信息矩阵</text>
+  </g>
+
+  <!-- ===== 因子图优化 ===== -->
+  <rect x="685" y="110" width="275" height="368" rx="8" fill="#f5ecd7" stroke="#b8a05a" stroke-width="2"/>
+  <text x="822" y="140" text-anchor="middle" font-size="14" font-weight="bold" fill="#8a7333">批量 LM(先验证收敛)</text>
+  <text x="822" y="162" text-anchor="middle" font-size="14" font-weight="bold" fill="#8a7333">→ iSAM2(在线)</text>
+  <line x1="705" y1="178" x2="940" y2="178" stroke="#b8a05a" stroke-width="1"/>
+  <text x="705" y="204" font-size="12.5" fill="#8a7333" font-weight="bold">状态</text>
+  <text x="705" y="224" font-size="12" fill="#8a7333">X / V / B @10Hz 关键帧</text>
+  <text x="705" y="243" font-size="12" fill="#8a7333">T_EW(松先验 10m/5°)</text>
+  <text x="705" y="274" font-size="12.5" fill="#8a7333" font-weight="bold">因子</text>
+  <g font-size="12" fill="#8a7333">
+    <rect x="705" y="286" width="12" height="12" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.4"/>
+    <text x="724" y="297">基站双差伪距(逐星对)</text>
+    <rect x="705" y="308" width="12" height="12" fill="#fbe3e0" stroke="#c94f42" stroke-width="1.4"/>
+    <text x="724" y="319">双差多普勒(直接观测 V)</text>
+    <rect x="705" y="330" width="12" height="12" fill="#ece3f5" stroke="#7d5ba6" stroke-width="1.4"/>
+    <text x="724" y="341">载波跨时间双差(可选)</text>
+    <rect x="705" y="352" width="12" height="12" fill="#d9f2ec" stroke="#2a9d8f" stroke-width="1.4"/>
+    <text x="724" y="363">IMU 预积分</text>
+    <rect x="705" y="374" width="12" height="12" fill="#dceaf7" stroke="#3a7ca5" stroke-width="1.4"/>
+    <text x="724" y="385">激光 between(KISS)</text>
+  </g>
+  <line x1="705" y1="404" x2="940" y2="404" stroke="#b8a05a" stroke-width="1"/>
+  <text x="822" y="428" text-anchor="middle" font-size="12" fill="#8a7333">无钟差状态(双差消掉)</text>
+  <text x="822" y="450" text-anchor="middle" font-size="12" fill="#8a7333">图结构详见图 2</text>
+
+  <!-- ===== 输出 ===== -->
+  <g font-size="12.5">
+    <rect x="1035" y="110" width="220" height="66" rx="7" fill="#f0f0f0" stroke="#888" stroke-width="1.6"/>
+    <text x="1145" y="136" text-anchor="middle" fill="#444" font-weight="bold">轨迹 + ATE 评估</text>
+    <text x="1145" y="156" text-anchor="middle" fill="#444">真值:rtkrcv RTK FIX</text>
+
+    <rect x="1035" y="196" width="220" height="66" rx="7" fill="#f0f0f0" stroke="#888" stroke-width="1.6"/>
+    <text x="1145" y="222" text-anchor="middle" fill="#444" font-weight="bold">彩色点云地图</text>
+    <text x="1145" y="242" text-anchor="middle" fill="#444">map_quality 管线</text>
+
+    <rect x="1035" y="300" width="220" height="76" rx="7" fill="#ece3f5" stroke="#7d5ba6" stroke-width="1.6" stroke-dasharray="6,4"/>
+    <text x="1145" y="326" text-anchor="middle" fill="#5f4380" font-weight="bold">v4 车车双差协同(远期)</text>
+    <text x="1145" y="346" text-anchor="middle" fill="#5f4380">车车相对 cm 级</text>
+    <text x="1145" y="364" text-anchor="middle" fill="#5f4380">遮挡车借邻车观测链</text>
+  </g>
+
+  <!-- ===== 箭头 ===== -->
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#666"/>
+    </marker>
+  </defs>
+  <g stroke="#666" stroke-width="1.6" fill="none" marker-end="url(#arr)">
+    <path d="M 250 143 L 320 137"/>
+    <path d="M 250 160 Q 285 240 320 282"/>
+    <path d="M 250 229 L 320 216"/>
+    <path d="M 467 164 L 467 182"/>
+    <path d="M 250 315 L 320 368"/>
+    <path d="M 250 401 L 320 444"/>
+    <path d="M 610 213 Q 645 230 680 250"/>
+    <path d="M 610 289 Q 645 295 680 300"/>
+    <path d="M 610 375 Q 645 370 680 362"/>
+    <path d="M 610 451 Q 645 430 680 415"/>
+    <path d="M 960 180 Q 995 160 1030 146"/>
+    <path d="M 960 240 Q 995 232 1030 229"/>
+  </g>
+  <path d="M 960 320 Q 995 330 1030 336" stroke="#7d5ba6" stroke-width="1.6" fill="none" stroke-dasharray="6,4" marker-end="url(#arr)"/>
+
+  <!-- ===== 底部演进条 ===== -->
+  <rect x="25" y="536" width="1250" height="66" rx="10" fill="#f7f7f7" stroke="#ddd"/>
+  <g font-size="13" text-anchor="middle">
+    <rect x="60" y="556" width="330" height="30" rx="15" fill="#f0f0f0" stroke="#999"/>
+    <text x="225" y="576" fill="#555">v2:INSPVA 位置因子(段A 0.100m,已验证)</text>
+    <text x="410" y="576" fill="#888" font-size="16">→</text>
+    <rect x="435" y="556" width="380" height="30" rx="15" fill="#f5ecd7" stroke="#b8a05a" stroke-width="1.5"/>
+    <text x="625" y="576" fill="#8a7333" font-weight="bold">v3:原始观测因子(本方案,P0–P3 待实验)</text>
+    <text x="835" y="576" fill="#888" font-size="16">→</text>
+    <rect x="860" y="556" width="380" height="30" rx="15" fill="#ece3f5" stroke="#7d5ba6" stroke-dasharray="5,3"/>
+    <text x="1050" y="576" fill="#5f4380">v4:车车动基线协同(设计另文,远期)</text>
+  </g>
+</svg>

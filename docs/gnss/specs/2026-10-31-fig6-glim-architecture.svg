@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 830" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <rect width="1400" height="830" fill="#ffffff"/>
+  <text x="700" y="42" text-anchor="middle" font-size="24" font-weight="bold" fill="#111">GLIM 软件架构(建图核心 + 回调插槽扩展)</text>
+
+  <!-- ===== 泳道背景 ===== -->
+  <rect x="25"  y="60" width="180" height="560" fill="#FADADD" opacity="0.55"/>
+  <rect x="215" y="60" width="205" height="560" fill="#F5F5DC" opacity="0.7"/>
+  <rect x="430" y="60" width="270" height="560" fill="#E8F5E9" opacity="0.8"/>
+  <rect x="710" y="60" width="200" height="560" fill="#E1BEE7" opacity="0.45"/>
+  <rect x="920" y="60" width="240" height="560" fill="#BBDEFB" opacity="0.5"/>
+  <rect x="1170" y="60" width="205" height="560" fill="#B2EBF2" opacity="0.5"/>
+  <rect x="430" y="630" width="730" height="150" fill="#FFE0B2" opacity="0.55"/>
+
+  <g font-size="14" fill="#555" text-anchor="middle">
+    <text x="115" y="84">ROS 接入</text>
+    <text x="322" y="84">预处理</text>
+    <text x="565" y="84">里程计(滑窗 LIO)</text>
+    <text x="810" y="84">子图</text>
+    <text x="1040" y="84">全局图</text>
+    <text x="1272" y="84">工具链</text>
+    <text x="795" y="654" font-weight="bold" fill="#8a5a00">全局回调插槽 —— glim_ext 插件(.so,不改核心)</text>
+  </g>
+
+  <!-- ===== Z1 ROS 接入 ===== -->
+  <g>
+    <rect x="40" y="120" width="150" height="150" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="115" y="142" text-anchor="middle" font-size="12.5" font-weight="bold">glim_rosnode</text>
+    <g font-size="11" fill="#222">
+      <text x="50" y="164">1. 订阅 imu/points</text>
+      <text x="50" y="184">2. config_path 加载</text>
+      <text x="50" y="200">   JSONC 配置族</text>
+      <text x="50" y="220">3. extension_modules</text>
+      <text x="50" y="236">   按名加载 .so</text>
+      <text x="50" y="256">4. TF 树输出</text>
+    </g>
+  </g>
+
+  <!-- ===== Z2 预处理 ===== -->
+  <g>
+    <rect x="230" y="120" width="175" height="170" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="317" y="142" text-anchor="middle" font-size="12.5" font-weight="bold">Preprocessor</text>
+    <g font-size="11" fill="#222">
+      <text x="240" y="164">1. 距离/体素降采样</text>
+      <text x="240" y="184">2. deskew:帧内 IMU</text>
+      <text x="240" y="200">   预积分逐点插值</text>
+      <text x="240" y="220">3. 逐点协方差估计</text>
+      <text x="240" y="240">回调: on_raw_points_</text>
+      <text x="240" y="256">received / on_down-</text>
+      <text x="240" y="272">sampling_finished</text>
+    </g>
+  </g>
+
+  <!-- ===== Z3 里程计 ===== -->
+  <g>
+    <rect x="445" y="110" width="240" height="120" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="565" y="132" text-anchor="middle" font-size="12.5" font-weight="bold">OdometryEstimationBase</text>
+    <g font-size="11" fill="#222">
+      <text x="455" y="154">工厂 → 可替换实现(.so):</text>
+      <text x="455" y="174">cpu: scan-to-model(iVox),LM</text>
+      <text x="455" y="194">gpu: scan-to-keyframes(CUDA)</text>
+      <text x="455" y="214">ct:  纯激光连续时间(无 IMU)</text>
+    </g>
+  </g>
+  <g>
+    <rect x="445" y="245" width="240" height="200" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="565" y="267" text-anchor="middle" font-size="12.5" font-weight="bold">滑窗因子图(iSAM2)</text>
+    <g font-size="11" fill="#222">
+      <text x="455" y="289">变量:X(i)=T_odom_imu, V, B</text>
+      <text x="455" y="309">因子:</text>
+      <text x="455" y="329">· ImuFactor(IMU 预积分)</text>
+      <text x="455" y="349">· IntegratedVGICPFactorGPU</text>
+      <text x="455" y="369">  (近邻帧二元 + 边缘化帧一元)</text>
+      <text x="455" y="389">smoother_lag≈5s 出窗边缘化</text>
+      <text x="455" y="409">关键帧: OVERLAP / DISPLAC-</text>
+      <text x="455" y="425">EMENT / ENTROPY 三策略</text>
+    </g>
+  </g>
+
+  <!-- ===== Z4 子图 ===== -->
+  <g>
+    <rect x="725" y="120" width="170" height="220" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="810" y="142" text-anchor="middle" font-size="12.5" font-weight="bold">SubMapping</text>
+    <g font-size="11" fill="#222">
+      <text x="735" y="164">1. 按 IMU 频率里程计</text>
+      <text x="735" y="180">   切子图(≈6.5s)</text>
+      <text x="735" y="200">2. 子图内小因子图:</text>
+      <text x="735" y="216">   GICP Between + IMU</text>
+      <text x="735" y="232">   + 关键帧全连接 VGICP</text>
+      <text x="735" y="252">3. SubMap = 点云合并</text>
+      <text x="735" y="268">   + 3 层多分辨率体素图</text>
+      <text x="735" y="288">origin_frame()=中点帧</text>
+      <text x="735" y="308">Passthrough 轻量版可选</text>
+      <text x="735" y="328">子图可序列化落盘</text>
+    </g>
+  </g>
+
+  <!-- ===== Z5 全局图 ===== -->
+  <g>
+    <rect x="935" y="110" width="210" height="240" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="1050" y="132" text-anchor="middle" font-size="12.5" font-weight="bold">GlobalMapping(推荐)</text>
+    <g font-size="11" fill="#222">
+      <text x="945" y="154">变量: X(s)=T_world_submap</text>
+      <text x="945" y="174">隐式回环: 插子图自动搜</text>
+      <text x="945" y="190">重叠历史子图, 建匹配代价</text>
+      <text x="945" y="206">因子 IntegratedVGICPFactor</text>
+      <text x="945" y="222">(每次重线性化重算残差,</text>
+      <text x="945" y="238">优于一次性 BetweenFactor)</text>
+      <text x="945" y="258">ISAM2 定时≈5s 触发</text>
+      <text x="945" y="278">退化: LinearDampingFactor</text>
+      <text x="945" y="294">自动恢复</text>
+      <text x="945" y="314">RTK 先验因子挂本层(§v3)</text>
+      <text x="945" y="334">PoseGraph 版=遗留,不推荐</text>
+    </g>
+  </g>
+
+  <!-- ===== Z6 工具链 ===== -->
+  <g>
+    <rect x="1185" y="120" width="175" height="160" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="1272" y="142" text-anchor="middle" font-size="12.5" font-weight="bold">离线/在线工具</text>
+    <g font-size="11" fill="#222">
+      <text x="1195" y="164">· standard_viewer(在线)</text>
+      <text x="1195" y="184">· offline_viewer</text>
+      <text x="1195" y="200">  (手动回环 + BA)</text>
+      <text x="1195" y="220">· map_editor(修图)</text>
+      <text x="1195" y="240">· dump &amp; load 子图</text>
+      <text x="1195" y="260">  (二次建图/复算)</text>
+    </g>
+  </g>
+
+  <!-- ===== 数据流实线箭头 ===== -->
+  <defs>
+    <marker id="ar5" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 Z" fill="#222"/>
+    </marker>
+  </defs>
+  <g stroke="#222" stroke-width="1.8" fill="none" marker-end="url(#ar5)">
+    <path d="M 190 195 L 226 195"/>
+    <path d="M 405 205 L 441 205"/>
+    <path d="M 685 230 L 721 230"/>
+    <path d="M 895 230 L 931 230"/>
+    <path d="M 1145 230 Q 1165 230 1181 210"/>
+  </g>
+
+  <!-- ===== 扩展槽(底部横带) ===== -->
+  <g font-size="11" fill="#222">
+    <rect x="450" y="668" width="160" height="92" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="530" y="688" text-anchor="middle" font-size="12" font-weight="bold">rtk_odometry</text>
+    <text x="460" y="708">帧级 RTK 约束</text>
+    <text x="460" y="726">AntennaPriorFactor 挂 X(i)</text>
+    <text x="460" y="746" fill="#a83a30">注意: 勿配 CT 里程计</text>
+
+    <rect x="625" y="668" width="160" height="92" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="705" y="688" text-anchor="middle" font-size="12" font-weight="bold">rtk_global</text>
+    <text x="635" y="708">子图级 RTK 约束(主力)</text>
+    <text x="635" y="726">质量感知定权: FIX/FLOAT</text>
+    <text x="635" y="746">/单点分档, 坏解降权拒绝</text>
+
+    <rect x="800" y="668" width="165" height="92" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="882" y="688" text-anchor="middle" font-size="12" font-weight="bold">质量校验三件套</text>
+    <text x="810" y="708">imu_validator: NID+时偏</text>
+    <text x="810" y="726">gravity_estimator: 锁横滚俯仰</text>
+    <text x="810" y="746">uncertainty_estimator: 退化检测</text>
+
+    <rect x="980" y="668" width="165" height="92" rx="8" fill="#fff" stroke="#222" stroke-width="1.2"/>
+    <text x="1062" y="688" text-anchor="middle" font-size="12" font-weight="bold">其余模块</text>
+    <text x="990" y="708">velocity_suppressor(零速)</text>
+    <text x="990" y="726">dbow / scan_context 回环</text>
+    <text x="990" y="746">gnss_global(上游 naive 版)</text>
+  </g>
+  <!-- 虚线: 因子注入 -->
+  <g stroke="#8a5a00" stroke-width="1.4" fill="none" stroke-dasharray="2,4">
+    <path d="M 530 668 Q 520 520 545 449"/>
+    <path d="M 705 668 Q 760 520 950 355"/>
+  </g>
+  <text x="445" y="520" font-size="11" fill="#8a5a00">on_new_frame / on_smoother_update</text>
+  <text x="860" y="470" font-size="11" fill="#8a5a00">on_insert_submap / on_smoother_update</text>
+
+  <!-- ===== 图例 ===== -->
+  <rect x="40" y="680" width="330" height="110" rx="6" fill="#fff" stroke="#999"/>
+  <text x="54" y="702" font-size="12.5" font-weight="bold">图例</text>
+  <line x1="54" y1="722" x2="90" y2="722" stroke="#222" stroke-width="1.8"/>
+  <text x="98" y="726" font-size="11">数据流(帧→子图→全局)</text>
+  <line x1="54" y1="746" x2="90" y2="746" stroke="#8a5a00" stroke-width="1.4" stroke-dasharray="2,4"/>
+  <text x="98" y="750" font-size="11">回调读取状态 / 注入因子</text>
+  <rect x="54" y="762" width="20" height="14" rx="4" fill="#fff" stroke="#222"/>
+  <text x="98" y="774" font-size="11">模块(类名 + 关键函数/机制)</text>
+  <text x="1350" y="812" text-anchor="end" font-size="10.5" fill="#999">MapCU × GLIM · 2026-10-31</text>
+</svg>
