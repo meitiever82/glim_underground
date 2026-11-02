@@ -628,11 +628,11 @@ glim_ext/modules/mapping/rtk_global/
 
 ---
 
-## 11. 界面迁移机制（轮 4，此处仅定机制）
+## 11. 界面迁移机制（轮 4：Web 为主、ImGui 可选）
 
-`imu_validator` 的先例表明：**任何 glim_ext module 都可通过 `guik::LightViewer::instance()->register_ui_callback(name, fn)` 把自己的 ImGui/ImPlot 界面挂进 GLIM 的 standard viewer**，析构时注销。故 rtk-monitor 的八项界面功能不需要独立的 viewer module，由 `gnss_diag` 模块自带界面即可，与 GLIM 现有诊断类模块保持一致。
+`imu_validator` 的先例表明：**任何 glim_ext module 都可通过 `guik::LightViewer::instance()->register_ui_callback(name, fn)` 把自己的 ImGui/ImPlot 界面挂进 GLIM 的 standard viewer**，析构时注销。故若实现 ImGui 本地视图，不需要独立的 viewer module，由 `gnss_diag` 模块自带界面即可；但产品交付改用 Web HMI（见下）。
 
-界面能力的具体映射（地图底图、瓦片、回放条等在 ImGui 环境下的等价形态）留待轮 4 设计。
+**2026-11-02 决策：界面交付形态改为 Web HMI 为主、ImGui 可选。** 远程与产品交付由 `gnss_bringup/hmi/` 的 Web 界面承担（见 `docs/gnss/specs/2026-11-02-gnss-web-hmi.md`），消费同一批 ROS 话题；GLIM 的 ImGui/ImPlot 界面仅作为“车上有显示器”时的可选本地视图，不再作为轮 4 的交付门槛。轮 4 只保留挂载机制，地图底图、瓦片、回放条等在 ImGui 下的等价形态不再单独设计。
 
 ---
 
